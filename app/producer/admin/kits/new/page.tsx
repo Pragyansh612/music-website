@@ -1,0 +1,805 @@
+"use client"
+
+import type React from "react"
+import { useState, useRef, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { motion } from "framer-motion"
+import { Save, X, Upload, Music, FileAudio, ImageIcon, Check, Play, Pause, Trash2, Plus } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Progress } from "@/components/ui/progress"
+import { toast } from "@/components/ui/use-toast"
+import { supabase } from "@/lib/supabase"
+import { v4 as uuidv4 } from "uuid"
+
+interface PreviewFile {
+  id: string
+  file: File
+  name: string
+  type: string
+  size: number
+  url: string
+  isPlaying: boolean
+}
+
+export default function AddKitPage() {
+  const router = useRouter()
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    category: "",
+    price: "0",
+    isPremium: false,
+    tags: "",
+    status: "draft",
+  })
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
+  const [kitFiles, setKitFiles] = useState<FileList | null>(null)
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null)
+  const [previewFiles, setPreviewFiles] = useState<PreviewFile[]>([])
+  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null)
+  const [uploadResult, setUploadResult] = useState({
+    success: false,
+    message: "",
+    kitId: " "
+  })
+
+  // Check authentication and get user ID
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data, error } = await supabase.auth.getSession()
+
+      if (error || !data.session) {
+        toast({
+          title: "Authentication Error",
+          description: "You must be logged in to add kits",
+          variant: "destructive",
+        })
+        router.push("/login")
+        return
+      }
+
+      setUserId(data.session.user.id)
+    }
+
+    checkAuth()
+  }, [router])
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+    setFormData((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const handleSwitchChange = (name: string, checked: boolean) => {
+    setFormData((prev) => ({ ...prev, [name]: checked }))
+  }
+
+  const handleThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setThumbnailFile(file)
+
+      // Create preview
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setThumbnailPreview(event.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleKitFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setKitFiles(e.target.files)
+    }
+  }
+
+  const handlePreviewFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newFiles = Array.from(e.target.files).map((file) => {
+        const id = Math.random().toString(36).substring(2, 9)
+        return {
+          id,
+          file,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          url: URL.createObjectURL(file),
+          isPlaying: false,
+        }
+      })
+
+      setPreviewFiles((prev) => [...prev, ...newFiles])
+    }
+  }
+
+  const removePreviewFile = (id: string) => {
+    setPreviewFiles((prev) => prev.filter((file) => file.id !== id))
+    if (currentlyPlaying === id) {
+      setCurrentlyPlaying(null)
+      if (audioRef.current) {
+        audioRef.current.pause()
+      }
+    }
+  }
+
+  const togglePlayPreview = (id: string) => {
+    if (currentlyPlaying === id) {
+      // Stop playing
+      setCurrentlyPlaying(null)
+      if (audioRef.current) {
+        audioRef.current.pause()
+      }
+    } else {
+      // Start playing this file
+      setCurrentlyPlaying(id)
+      if (audioRef.current) {
+        audioRef.current.src = previewFiles.find((file) => file.id === id)?.url || ""
+        audioRef.current.play()
+      }
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!userId) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to create a kit",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      // Generate a unique ID for the kit
+      const kitId = uuidv4()
+
+      // 1. Upload thumbnail image to Supabase (keep this as is)
+      let imagePath = null
+      if (thumbnailFile) {
+        const fileExt = thumbnailFile.name.split('.').pop()
+        const filePath = `${userId}/${kitId}/thumbnail.${fileExt}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('kit-images')
+          .upload(filePath, thumbnailFile)
+
+        if (uploadError) throw uploadError
+
+        imagePath = filePath
+      }
+
+      // 2. Create the kit record in the database
+      const { error: kitError } = await supabase
+        .from('kits')
+        .insert({
+          id: kitId,
+          name: formData.name,
+          description: formData.description,
+          category: formData.category,
+          price: parseFloat(formData.price),
+          status: formData.status,
+          created_by: userId,
+          image: imagePath,
+          // Add any other fields
+        })
+
+      if (kitError) throw kitError
+
+      // 3. Upload kit files directly to Google Drive main folder
+      if (kitFiles && kitFiles.length > 0) {
+        let uploadedCount = 0;
+
+        // Use your main folder directly - no subfolder creation
+        const parentFolderId = '1yRCtRAXTLfWQFyfFeshJgiRJKV5E8FIw'; // Your Google Drive folder ID
+
+        for (let i = 0; i < kitFiles.length; i++) {
+          const file = kitFiles[i];
+
+          // Prepend kit ID to filename to keep them unique
+          const uniqueFileName = file.name;
+
+          // Create FormData for upload
+          const uploadFormData = new FormData();
+          uploadFormData.append('file', file);
+          uploadFormData.append('parentFolderId', parentFolderId);
+          uploadFormData.append('fileName', uniqueFileName);
+
+          try {
+            // Show loading state
+            setUploadProgress(Math.round((i / kitFiles.length) * 50));
+
+            // Upload file to Google Drive
+            const uploadResponse = await fetch('/api/drive/upload-file', {
+              method: 'POST',
+              body: uploadFormData,
+            });
+
+            if (!uploadResponse.ok) {
+              throw new Error(`Error uploading ${file.name} to Google Drive: ${uploadResponse.statusText}`);
+            }
+
+            const { fileId, webViewLink } = await uploadResponse.json();
+
+            // Log the file URL
+            console.log(`File uploaded: ${file.name}`);
+            console.log(`Google Drive URL: ${webViewLink}`);
+
+            // Add entry to kit_files table with Google Drive info
+            const { error: fileRecordError } = await supabase
+              .from('kit_files')
+              .insert({
+                kit_id: kitId,
+                file_name: file.name,
+                file_type: file.type,
+                file_size: file.size,
+                google_drive_link: webViewLink,
+                google_drive_file_id: fileId
+              });
+
+            if (fileRecordError) {
+              console.error(`Error recording ${file.name}:`, fileRecordError);
+            }
+
+            uploadedCount++;
+
+            // Update progress for second half
+            setUploadProgress(50 + Math.round((uploadedCount / kitFiles.length) * 50));
+          } catch (error) {
+            console.error(`Error uploading ${file.name}:`, error);
+            toast({
+              title: "Upload Error",
+              description: `Failed to upload ${file.name}. Please try again.`,
+              variant: "destructive",
+            });
+          }
+        }
+      }
+
+      // 4. Upload preview files to Supabase (keep this as is for streaming audio previews)
+      if (previewFiles.length > 0) {
+        for (const previewFile of previewFiles) {
+          const filePath = `${userId}/${kitId}/previews/${previewFile.name}`;
+
+          const { error: previewUploadError } = await supabase.storage
+            .from('kit-previews')
+            .upload(filePath, previewFile.file);
+
+          if (previewUploadError) {
+            console.error(`Error uploading preview ${previewFile.name}:`, previewUploadError);
+          }
+        }
+      }
+
+      setUploadResult({
+        success: true,
+        message: "Your kit has been successfully uploaded!",
+        kitId: kitId
+      })
+      setShowSuccessDialog(true)
+    } catch (error) {
+      console.error("Error creating kit:", error);
+      setUploadResult({
+        success: false,
+        message: "There was a problem creating your kit. Please try again.",
+        kitId: " "
+      })
+      toast({
+        title: "Error",
+        description: "There was a problem creating your kit. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const handleSuccessConfirm = () => {
+    setShowSuccessDialog(false)
+    router.push("/producer/admin/kits")
+  }
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.05,
+        ease: [0.22, 1, 0.36, 1],
+      },
+    },
+  }
+
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: {
+      y: 0,
+      opacity: 1,
+      transition: {
+        duration: 0.5,
+        ease: [0.22, 1, 0.36, 1],
+      },
+    },
+  }
+
+  return (
+    <div>
+      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
+        <motion.div
+          variants={itemVariants}
+          className="flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+        >
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight neon-text">Add New Kit</h1>
+            <p className="text-muted-foreground">Upload a new sound kit or sample pack to your store.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => router.push("/producer/admin/kits")}>
+              <X size={16} className="mr-2" />
+              Cancel
+            </Button>
+            <Button variant="premium" onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
+                  className="h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2"
+                />
+              ) : (
+                <Save size={16} className="mr-2" />
+              )}
+              {isSubmitting ? "Saving..." : "Save Kit"}
+            </Button>
+          </div>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-6">
+                <Card className="glass-card">
+                  <CardHeader>
+                    <CardTitle>Kit Information</CardTitle>
+                    <CardDescription>Basic information about your sound kit</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">
+                        Kit Name <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="name"
+                        name="name"
+                        className="glass-input"
+                        placeholder="e.g. Midnight Drums Vol. 1"
+                        value={formData.name}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="description">
+                        Description <span className="text-destructive">*</span>
+                      </Label>
+                      <Textarea
+                        id="description"
+                        name="description"
+                        className="glass-input min-h-[150px]"
+                        placeholder="Describe your kit in detail. Include information about the sounds, style, and what makes it unique."
+                        value={formData.description}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="category">
+                          Category <span className="text-destructive">*</span>
+                        </Label>
+                        <Select
+                          name="category"
+                          value={formData.category}
+                          onValueChange={(value) => setFormData((prev) => ({ ...prev, category: value }))}
+                          required
+                        >
+                          <SelectTrigger className="glass-input">
+                            <SelectValue placeholder="Select a category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="drum-kit">Drum Kit</SelectItem>
+                            <SelectItem value="melody-loops">Melody Loops</SelectItem>
+                            <SelectItem value="sample-pack">Sample Pack</SelectItem>
+                            <SelectItem value="vocal-samples">Vocal Samples</SelectItem>
+                            <SelectItem value="sound-effects">Sound Effects</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="price">
+                          Price <span className="text-destructive">*</span>
+                        </Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-3">$</span>
+                          <Input
+                            id="price"
+                            name="price"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="glass-input pl-7"
+                            placeholder="0.00"
+                            value={formData.price}
+                            onChange={handleInputChange}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="isPremium">Premium Content</Label>
+                        <p className="text-sm text-muted-foreground">Mark this kit as premium content</p>
+                      </div>
+                      <Switch
+                        id="isPremium"
+                        checked={formData.isPremium}
+                        onCheckedChange={(checked) => handleSwitchChange("isPremium", checked)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="tags">Tags</Label>
+                      <Input
+                        id="tags"
+                        name="tags"
+                        className="glass-input"
+                        placeholder="e.g. trap, 808, drums, hip-hop (comma separated)"
+                        value={formData.tags}
+                        onChange={handleInputChange}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Add tags to help users find your kit. Separate with commas.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="glass-card">
+                  <CardHeader>
+                    <CardTitle>Preview Files</CardTitle>
+                    <CardDescription>Upload audio previews for users to listen before downloading</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-4">
+                        <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                          <FileAudio size={24} className="text-primary" />
+                        </div>
+                        <div className="space-y-2">
+                          <h3 className="font-medium">Upload Preview Files</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Add audio previews so users can listen before downloading
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Supported formats: MP3, WAV (Max 5MB per file)
+                          </p>
+                        </div>
+                        <Input
+                          id="preview-files"
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={handlePreviewFilesChange}
+                          accept=".mp3,.wav"
+                        />
+                        <Button variant="outline" type="button" onClick={() => document.getElementById("preview-files")?.click()}>
+                          <Plus size={16} className="mr-2" />
+                          Add Preview Files
+                        </Button>
+                      </div>
+
+                      {previewFiles.length > 0 && (
+                        <div className="mt-6 text-left">
+                          <h4 className="font-medium mb-2">Preview Files ({previewFiles.length})</h4>
+                          <div className="space-y-3">
+                            {previewFiles.map((file) => (
+                              <div key={file.id} className="flex items-center gap-3 p-3 rounded-md bg-muted/20">
+                                <button
+                                  type="button"
+                                  onClick={() => togglePlayPreview(file.id)}
+                                  className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0"
+                                >
+                                  {currentlyPlaying === file.id ? (
+                                    <Pause size={16} />
+                                  ) : (
+                                    <Play size={16} className="ml-0.5" />
+                                  )}
+                                </button>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">{file.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {file.type.split("/")[1].toUpperCase()} • {(file.size / 1024 / 1024).toFixed(2)} MB
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  onClick={() => removePreviewFile(file.id)}
+                                >
+                                  <Trash2 size={16} />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Hidden audio element for preview playback */}
+                    <audio ref={audioRef} className="hidden" onEnded={() => setCurrentlyPlaying(null)} />
+                  </CardContent>
+                </Card>
+
+                <Card className="glass-card">
+                  <CardHeader>
+                    <CardTitle>Kit Files</CardTitle>
+                    <CardDescription>Upload the sound files for your kit</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-4">
+                        <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                          <Upload size={24} className="text-primary" />
+                        </div>
+                        <div className="space-y-2">
+                          <h3 className="font-medium">Upload Kit</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Drag and drop your sound files here, or click to browse
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Supported formats: WAV, MP3, AIFF, ZIP, RAR (Max 500MB total)
+                          </p>
+                        </div>
+                        <Input
+                          id="kit-files"
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={handleKitFilesChange}
+                          accept=".wav,.mp3,.aiff,.zip,.rar"
+                        />
+                        <Button variant="outline" type="button" onClick={() => document.getElementById("kit-files")?.click()}>
+                          <Music size={16} className="mr-2" />
+                          Select Files
+                        </Button>
+                      </div>
+                      {kitFiles && (
+                        <div className="mt-6 text-left">
+                          <h4 className="font-medium mb-2">Selected Files ({kitFiles.length})</h4>
+                          <div className="max-h-40 overflow-y-auto space-y-2">
+                            {Array.from(kitFiles).map((file, index) => (
+                              <div key={index} className="flex items-center gap-2 p-2 rounded-md bg-muted/20">
+                                <FileAudio size={16} className="text-primary" />
+                                <span className="text-sm truncate">{file.name}</span>
+                                <span className="text-xs text-muted-foreground ml-auto">
+                                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="lg:col-span-1 space-y-6">
+                <Card className="glass-card">
+                  <CardHeader>
+                    <CardTitle>Thumbnail</CardTitle>
+                    <CardDescription>Upload a cover image for your kit</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
+                      {thumbnailPreview ? (
+                        <div className="relative aspect-video rounded-md overflow-hidden">
+                          <img
+                            src={thumbnailPreview || "/placeholder.svg"}
+                            alt="Thumbnail preview"
+                            className="object-cover w-full h-full"
+                          />
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            type="button"
+                            className="absolute top-2 right-2 h-8 w-8"
+                            onClick={() => {
+                              setThumbnailPreview(null)
+                              setThumbnailFile(null)
+                            }}
+                          >
+                            <X size={14} />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center space-y-4 py-6">
+                          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                            <ImageIcon size={20} className="text-primary" />
+                          </div>
+                          <div className="space-y-2">
+                            <h3 className="font-medium">Upload Thumbnail</h3>
+                            <p className="text-xs text-muted-foreground">Recommended size: 1200 x 630px</p>
+                          </div>
+                          <Input
+                            id="thumbnail"
+                            type="file"
+                            className="hidden"
+                            onChange={handleThumbnailChange}
+                            accept="image/*"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            onClick={() => document.getElementById("thumbnail")?.click()}
+                          >
+                            <ImageIcon size={14} className="mr-2" />
+                            Select Image
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="glass-card">
+                  <CardHeader>
+                    <CardTitle>Publishing</CardTitle>
+                    <CardDescription>Control how your kit is published</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <RadioGroup
+                      defaultValue="draft"
+                      value={formData.status}
+                      onValueChange={(value) => setFormData((prev) => ({ ...prev, status: value }))}
+                    >
+                      <div className="flex items-start space-x-2">
+                        <RadioGroupItem value="draft" id="draft" />
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="draft" className="font-medium">
+                            Save as Draft
+                          </Label>
+                          <p className="text-sm text-muted-foreground">Save but don't publish yet</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-2">
+                        <RadioGroupItem value="active" id="active" />
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="active" className="font-medium">
+                            Publish Immediately
+                          </Label>
+                          <p className="text-sm text-muted-foreground">Make available for download right away</p>
+                        </div>
+                      </div>
+                    </RadioGroup>
+                  </CardContent>
+                </Card>
+
+                <Card className="glass-card">
+                  <CardHeader>
+                    <CardTitle>SEO Settings</CardTitle>
+                    <CardDescription>Optimize for search engines</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="seo-title">SEO Title</Label>
+                      <Input id="seo-title" className="glass-input" placeholder="Leave blank to use kit name" />
+                      <p className="text-xs text-muted-foreground">Recommended: 50-60 characters</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="seo-description">Meta Description</Label>
+                      <Textarea
+                        id="seo-description"
+                        className="glass-input min-h-[80px]"
+                        placeholder="Leave blank to use kit description"
+                      />
+                      <p className="text-xs text-muted-foreground">Recommended: 150-160 characters</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="seo-keywords">Keywords</Label>
+                      <Input
+                        id="seo-keywords"
+                        className="glass-input"
+                        placeholder="e.g. free drum kit, trap samples, 808"
+                      />
+                      <p className="text-xs text-muted-foreground">Separate with commas</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" type="button" onClick={() => router.push("/producer/admin/kits")}>
+                Cancel
+              </Button>
+              <Button variant="premium" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
+                      className="h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2"
+                    />
+                    <span>Uploading...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save size={16} className="mr-2" />
+                    <span>Save Kit</span>
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {isSubmitting && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Uploading files...</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <Progress value={uploadProgress} className="h-2" />
+              </div>
+            )}
+          </form>
+        </motion.div>
+      </motion.div>
+
+      <AlertDialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <AlertDialogContent className="glass-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kit Created Successfully!</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your new kit has been{" "}
+              {formData.status === "active" ? "published and is now available for download" : "saved as a draft"}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex items-center justify-center py-4">
+            <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+              <Check size={32} className="text-primary" />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={handleSuccessConfirm}>Return to Kits</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
