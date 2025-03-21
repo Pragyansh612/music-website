@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { uploadFile } from '@/lib/google-drive';
 
 export const config = {
-  api: {
-    bodyParser: false,
-    responseLimit: '200mb',
-  },
+  runtime: 'edge',
 };
 
 export async function POST(req: NextRequest) {

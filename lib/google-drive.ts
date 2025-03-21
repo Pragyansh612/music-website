@@ -21,11 +21,23 @@ export const googleDrive = initGoogleDriveClient();
 export const MAIN_FOLDER_ID = '1yRCtRAXTLfWQFyfFeshJgiRJKV5E8FIw';
 
 // Upload a file to Google Drive
-export const uploadFile = async (file: File, fileName: string, folderId: string) => {
+// Add this to google-drive.ts
+export const uploadFile = async (file: any, fileName: string, folderId: string) => {
   try {
-    // Convert File to Buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    // Handle both File objects and our custom chunk-combined objects
+    let buffer;
+    let mimeType;
+    
+    if (file instanceof File) {
+      // Original File object case
+      const arrayBuffer = await file.arrayBuffer();
+      buffer = Buffer.from(arrayBuffer);
+      mimeType = file.type || 'application/octet-stream';
+    } else {
+      // Our custom object from chunks
+      buffer = Buffer.from(await file.arrayBuffer());
+      mimeType = file.type || 'application/octet-stream';
+    }
     
     // Create a readable stream from buffer
     const readable = Readable.from(buffer);
@@ -36,7 +48,7 @@ export const uploadFile = async (file: File, fileName: string, folderId: string)
         parents: [folderId]
       },
       media: {
-        mimeType: file.type || 'application/octet-stream',
+        mimeType: mimeType,
         body: readable
       },
       fields: 'id,webViewLink'
