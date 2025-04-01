@@ -4,7 +4,7 @@ import Link from "next/link"
 import Image from "next/image"
 import { Download, Filter, Headphones, Music, Package, Search } from "lucide-react"
 import { motion } from "framer-motion"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,11 +12,121 @@ import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SiteFooter } from "@/components/site-footer"
-import { OrderCard } from "@/components/order-card" // Import the OrderCard component
+import { OrderCard } from "@/components/order-card"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { useRouter } from "next/navigation"
+import { toast } from "@/components/ui/use-toast"
+
+interface Kit {
+  id: string
+  title: string
+  description: string
+  image: string
+  fileCount: number
+  type: string
+  bpm?: string
+}
 
 export default function KitsPage() {
-  const [searchQuery, setSearchQuery] = useState("")
   const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const router = useRouter()
+  const supabase = createClientComponentClient()
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState("all")
+  const [sortBy, setSortBy] = useState("newest")
+  const [deleteKitId, setDeleteKitId] = useState<string | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [allKits, setKits] = useState<Kit[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+    useEffect(() => {
+  
+  const fetchKits = async () => {
+    setIsLoading(true)
+    try {
+      // Get all kits without filtering by user
+      const { data, error } = await supabase
+        .from('kits')
+        .select(`
+          id,
+          name,
+          description,
+          category,
+          price,
+          status,
+          image,
+          created_at
+        `)
+        .order('created_at', { ascending: false })
+  
+      console.log("Kits query result:", data, error)
+  
+      if (error) throw error
+  
+      if (!data || data.length === 0) {
+        console.log("No kits found in database")
+        setKits([])
+        setIsLoading(false)
+        return
+      }
+  
+      // Format the kit data to match the expected structure
+      const formattedKits: Kit[] = await Promise.all(data.map(async (kit) => {
+        // Get download count
+        const { count: downloadCount, error: downloadError } = await supabase
+          .from('kit_downloads')
+          .select('*', { count: 'exact', head: true })
+          .eq('kit_id', kit.id)
+  
+        if (downloadError) console.error("Error fetching downloads:", downloadError)
+  
+        // Get file count from kit_files table
+        const { count: fileCount, error: fileCountError } = await supabase
+          .from('kit_files')
+          .select('*', { count: 'exact', head: true })
+          .eq('kit_id', kit.id)
+  
+        if (fileCountError) console.error("Error fetching file count:", fileCountError)
+  
+        // Get the image URL if there is an image path
+        let imageUrl = '/placeholder.svg?height=40&width=40'
+        if (kit.image) {
+          const { data: imageData } = await supabase.storage
+            .from('kit-images')
+            .getPublicUrl(kit.image)
+  
+          imageUrl = imageData?.publicUrl || imageUrl
+        }
+  
+        return {
+          id: kit.id,
+          title: kit.name,
+          description: kit.description,
+          type: kit.category,
+          fileCount: fileCount || 0,
+          downloads: downloadCount || 0,
+          status: kit.status,
+          createdAt: kit.created_at,
+          image: imageUrl,
+          price: kit.price || 0
+        }
+      }))
+  
+      setKits(formattedKits)
+    } catch (error) {
+      console.error("Error fetching kits:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load your kits. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  
+      fetchKits()
+    }, [supabase, router])
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -68,7 +178,7 @@ export default function KitsPage() {
                 </Button>
               </div>
             </motion.div>
-  
+
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{
@@ -143,7 +253,7 @@ export default function KitsPage() {
                 </div>
               </div>
             </motion.div>
-  
+
             <Tabs defaultValue="all" className="mb-8">
               <TabsList className="glass">
                 <TabsTrigger value="all">All Kits</TabsTrigger>
@@ -195,70 +305,3 @@ export default function KitsPage() {
     </div>
   );
 }
-
-// Sample data
-const allKits = [
-  {
-    id: "midnight-drums",
-    title: "Midnight Drums",
-    description: "Dark and atmospheric drum kit with punchy kicks and crisp snares",
-    image: "/placeholder.svg?height=300&width=400",
-    fileCount: 45,
-    type: "Drum Kit",
-    bpm: "80-140",
-  },
-  {
-    id: "neon-melodies",
-    title: "Neon Melodies",
-    description: "Vibrant melodic loops inspired by synthwave and retrowave",
-    image: "/placeholder.svg?height=300&width=400",
-    fileCount: 32,
-    type: "Melody Loops",
-    bpm: "100",
-  },
-  {
-    id: "urban-essentials",
-    title: "Urban Essentials",
-    description: "Essential sounds for hip-hop and trap production",
-    image: "/placeholder.svg?height=300&width=400",
-    fileCount: 60,
-    type: "Sample Pack",
-    bpm: "Varied",
-  },
-  {
-    id: "lofi-dreams",
-    title: "Lo-Fi Dreams",
-    description: "Mellow and nostalgic lo-fi samples and loops",
-    image: "/placeholder.svg?height=300&width=400",
-    fileCount: 38,
-    type: "Sample Pack",
-    bpm: "70-90",
-  },
-  {
-    id: "future-bass-elements",
-    title: "Future Bass Elements",
-    description: "Modern future bass sounds with energetic synths and drums",
-    image: "/placeholder.svg?height=300&width=400",
-    fileCount: 52,
-    type: "Sample Pack",
-    bpm: "140-150",
-  },
-  {
-    id: "analog-percussion",
-    title: "Analog Percussion",
-    description: "Warm analog drum sounds recorded from vintage hardware",
-    image: "/placeholder.svg?height=300&width=400",
-    fileCount: 40,
-    type: "Drum Kit",
-    bpm: "Any",
-  },
-  {
-    id: "ambient-textures",
-    title: "Ambient Textures",
-    description: "Ethereal and atmospheric textures for ambient and cinematic music",
-    image: "/placeholder.svg?height=300&width=400",
-    fileCount: 25,
-    type: "FX",
-    bpm: "N/A",
-  },
-]

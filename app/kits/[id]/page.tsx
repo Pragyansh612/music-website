@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { ArrowLeft, Download, FileAudio, Music, Package, Play, Share2, Pause, Volume2, VolumeX } from "lucide-react"
@@ -16,42 +16,179 @@ import { Separator } from "@/components/ui/separator"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SEO } from "@/components/seo-optimization"
+import { useRouter, useParams } from "next/navigation"
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { toast } from "@/components/ui/use-toast"
 
-export default function KitDetailsPage({ params }: { params: { id: string } }) {
-  // In a real app, you would fetch the kit data based on the ID
-  const kit = kits.find((k) => k.id === params.id) || kits[0]
+const supabase = createClientComponentClient()
+
+interface Kit {
+    id: string;
+    name: string;
+    description: string;
+    type: string;
+    fileCount: number;
+    downloads: number;
+    status: string;
+    created_at: string;
+    image: string;
+    price: number;
+    category: string;
+}
+
+interface KitFile {
+    id: string;
+    kit_id: string;
+    name: string;
+    file_url: string;
+    file_type: string;
+    duration?: string;
+    category: string;
+}
+
+export default function KitDetailsPage() {
+  const router = useRouter();
+  const params = useParams();
+  const kitId = params.id as string;
+  const [kit, setKit] = useState<Kit | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [files, setFiles] = useState<KitFile[]>([])
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentPreview, setCurrentPreview] = useState<string | null>(null)
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(0.8)
+  const [relatedKits, setRelatedKits] = useState<Kit[]>([])
 
-  // SEO data for this specific kit
-  const seoData = {
-    title: `${kit.title} - Free Music Kit | ProdByShyrap`,
-    description: `Download ${kit.title} - ${kit.description}. High-quality ${kit.type} for music producers.`,
-    keywords: `${kit.title}, ${kit.type}, free samples, music production, ${kit.bpm} BPM, music kit, download`,
+  useEffect(() => {
+    const fetchKitDetails = async () => {
+        setIsLoading(true);
+        try {
+            const { data: kitData, error: kitError } = await supabase
+                .from('kits')
+                .select('*')
+                .eq('id', kitId)
+                .single();
+
+            if (kitError) throw kitError;
+
+            if (!kitData) {
+                toast({
+                    title: "Kit not found",
+                    description: "The requested kit does not exist.",
+                    variant: "destructive",
+                });
+                router.push('/kits');
+                return;
+            }
+            // Set the kit data
+            setKit(kitData);
+
+            // Fetch kit files
+            const { data: filesData, error: filesError } = await supabase
+                .from('kit_files')
+                .select('*')
+                .eq('kit_id', kitId);
+
+            if (filesError) throw filesError;
+
+            setFiles(filesData || []);
+
+            // Fetch related kits
+            const { data: relatedData, error: relatedError } = await supabase
+                .from('kits')
+                .select('*')
+                .neq('id', kitId)
+                .eq('status', 'published')
+                .limit(4);
+
+            if (relatedError) throw relatedError;
+
+            let imageUrl = '/placeholder.svg'
+            if (kitData.image) {
+                const { data: imageData } = await supabase.storage
+                    .from('kit-images')
+                    .getPublicUrl(kitData.image)
+
+                imageUrl = imageData?.publicUrl || imageUrl
+            }
+
+            setKit({
+                ...kitData,
+                image: imageUrl
+            });
+
+            // After fetching files data
+            if (filesData) {
+                // Format the files with proper URLs
+                const formattedFiles = await Promise.all(filesData.map(async (file) => {
+                    // Get the file URL
+                    const { data: fileUrlData } = await supabase.storage
+                        .from('kit-files')
+                        .getPublicUrl(file.file_path)
+
+                    return {
+                        ...file,
+                        file_url: fileUrlData?.publicUrl || '',
+                    }
+                }))
+
+                setFiles(formattedFiles);
+            }
+            setRelatedKits(relatedData || []);
+        } catch (error) {
+            console.error("Error fetching kit details:", error);
+            toast({
+                title: "Error",
+                description: "Failed to load kit details. Please try again.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    if (kitId) {
+        fetchKitDetails();
+    }
+}, [kitId, router]);
+
+console.log(kit)
+
+if (isLoading || !kit) {
+    return (
+        <div className="flex min-h-screen flex-col items-center justify-center">
+            <p>Loading kit details...</p>
+        </div>
+    );
+}
+
+// SEO data for this specific kit
+const seoData = {
+    title: `${kit.name} - Free Music Kit | ProdByShyrap`,
+    description: `Download ${kit.name} - ${kit.description}. High-quality ${kit.type} for music producers.`,
+    keywords: `${kit.name}, ${kit.type}, free samples, music production, music kit, download`,
     ogImage: kit.image,
     ogType: "product",
-  }
+}
 
   // Schema.org structured data for this kit
   const schemaData = {
     "@context": "https://schema.org/",
     "@type": "Product",
-    name: kit.title,
+    name: kit.name,
     image: kit.image,
     description: kit.description,
     brand: {
-      "@type": "Brand",
-      name: "ProdByShyrap",
+        "@type": "Brand",
+        name: "ProdByShyrap",
     },
     offers: {
-      "@type": "Offer",
-      price: "0.00",
-      priceCurrency: "USD",
-      availability: "https://schema.org/InStock",
+        "@type": "Offer",
+        price: "0.00",
+        priceCurrency: "USD",
+        availability: "https://schema.org/InStock",
     },
-  }
+}
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -75,17 +212,17 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
     },
   }
 
-  const handlePlayAll = () => {
-    if (isPlaying) {
-      setIsPlaying(false)
-      setCurrentPreview(null)
-    } else {
-      setIsPlaying(true)
-      // Start with the first preview
-      const firstPreview = [...kit.samples.drums, ...kit.samples.melodies][0]
-      setCurrentPreview(firstPreview.url)
-    }
-  }
+  // const handlePlayAll = () => {
+  //   if (isPlaying) {
+  //     setIsPlaying(false)
+  //     setCurrentPreview(null)
+  //   } else {
+  //     setIsPlaying(true)
+  //     // Start with the first preview
+  //     const firstPreview = [...kit.samples.drums, ...kit.samples.melodies][0]
+  //     setCurrentPreview(firstPreview.url)
+  //   }
+  // }
 
   const handlePlaySingle = (url: string) => {
     if (currentPreview === url) {
@@ -145,7 +282,7 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
               >
                 <Image
                   src={kit.image || "/placeholder.svg"}
-                  alt={`${kit.title} - ${kit.type} by ProdByShyrap`}
+                  alt={`${kit.name} - ${kit.type} by ProdByShyrap`}
                   fill
                   className="object-cover"
                   priority
@@ -155,7 +292,7 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
                 {/* Play All Button Overlay */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <motion.button
-                    onClick={handlePlayAll}
+                    // onClick={handlePlayAll}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
                     className="h-16 w-16 rounded-full bg-primary/90 flex items-center justify-center shadow-lg"
@@ -202,10 +339,10 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
                   <div className="flex items-center gap-2 mb-2">
                     <Badge className="glass">{kit.type}</Badge>
                     <Badge variant="outline" className="glass">
-                      {kit.bpm} BPM
+                      {/* {kit.bpm} BPM */}
                     </Badge>
                   </div>
-                  <h1 className="text-3xl font-bold gradient-text">{kit.title}</h1>
+                  <h1 className="text-3xl font-bold gradient-text">{kit.name}</h1>
                   <p className="text-muted-foreground mt-2">{kit.description}</p>
                 </div>
 
@@ -220,20 +357,20 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
                   </div>
                   <div className="flex flex-col glass-card p-3 rounded-lg">
                     <span className="text-sm text-muted-foreground">Size</span>
-                    <span className="font-medium">{kit.size} MB</span>
+                    {/* <span className="font-medium">{kit.size} MB</span> */}
                   </div>
                   <div className="flex flex-col glass-card p-3 rounded-lg">
                     <span className="text-sm text-muted-foreground">Released</span>
-                    <span className="font-medium">{kit.releaseDate}</span>
+                    <span className="font-medium">{kit.created_at}</span>
                   </div>
                 </div>
 
                 <div className="mt-auto space-y-4">
                   <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                     <Button className="w-full gap-2 glass relative overflow-hidden group h-12 text-lg" size="lg">
-                      <span className="relative z-10">Download Kit</span>
+                      <span className="relative z-10 text-black group-hover:text-white transition-colors duration-300">Download Kit</span>
                       <Download size={18} className="relative z-10" />
-                      <span className="absolute inset-0 w-full h-full bg-primary/80 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></span>
+                      <span className="absolute inset-0  w-full h-full bg-primary/80 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></span>
                     </Button>
                   </motion.div>
                   <div className="flex gap-2">
@@ -244,7 +381,7 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
                     <Button
                       variant="outline"
                       className={`flex-1 gap-2 glass ${isPlaying ? "bg-primary/20" : ""}`}
-                      onClick={handlePlayAll}
+                      // onClick={handlePlayAll}
                     >
                       {isPlaying ? <Pause size={16} /> : <Play size={16} />}
                       {isPlaying ? "Stop Preview" : "Preview All"}
@@ -267,7 +404,7 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
                 <motion.div variants={itemVariants}>
                   <h3 className="text-lg font-medium mb-4">Drums</h3>
                   <div className="space-y-3">
-                    {kit.samples.drums.map((sample, index) => (
+                    {/* {kit.samples.drums.map((sample, index) => (
                       <motion.div
                         key={index}
                         variants={itemVariants}
@@ -299,14 +436,14 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
                           </Button>
                         </div>
                       </motion.div>
-                    ))}
+                    ))} */}
                   </div>
                 </motion.div>
 
                 <motion.div variants={itemVariants}>
                   <h3 className="text-lg font-medium mb-4">Melodies</h3>
                   <div className="space-y-3">
-                    {kit.samples.melodies.map((sample, index) => (
+                    {/* {kit.samples.melodies.map((sample, index) => (
                       <motion.div
                         key={index}
                         variants={itemVariants}
@@ -338,7 +475,7 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
                           </Button>
                         </div>
                       </motion.div>
-                    ))}
+                    ))} */}
                   </div>
                 </motion.div>
               </motion.div>
@@ -352,12 +489,12 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
                 transition={{ duration: 0.5 }}
               >
                 <h3>About this Kit</h3>
-                <p>{kit.longDescription}</p>
+                <p>{kit.description}</p>
 
                 <h3>What's Included</h3>
                 <ul>
-                  <li>{kit.samples.drums.length} drum samples (kicks, snares, hi-hats, percussion)</li>
-                  <li>{kit.samples.melodies.length} melodic loops</li>
+                  {/* <li>{kit.samples.drums.length} drum samples (kicks, snares, hi-hats, percussion)</li>
+                  <li>{kit.samples.melodies.length} melodic loops</li> */}
                   <li>24-bit WAV format</li>
                   <li>Royalty-free for commercial and non-commercial use</li>
                 </ul>
@@ -482,7 +619,7 @@ export default function KitDetailsPage({ params }: { params: { id: string } }) {
           autoPlay={isPlaying}
           loop={false}
           muted={isMuted}
-          volume={volume}
+          // volume={volume}
           onEnded={() => {
             setIsPlaying(false)
             setCurrentPreview(null)
@@ -766,4 +903,3 @@ const kits = [
     },
   },
 ]
-

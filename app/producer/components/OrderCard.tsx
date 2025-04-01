@@ -35,6 +35,8 @@ export const OrderCard = ({ kit, onDeleteClick }: { kit: Kit; onDeleteClick: (ki
     }
   }
 
+  const formattedDate = new Date(kit.createdAt).toLocaleDateString()
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}

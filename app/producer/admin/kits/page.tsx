@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { motion } from "framer-motion"
@@ -17,7 +17,9 @@ import {
   FileMusic,
   CheckCircle,
 } from "lucide-react"
-
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
+import { useRouter } from "next/navigation"
+import { toast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -51,14 +53,156 @@ interface Kit {
   status: string;
   createdAt: string;
   image: string;
+  price: number;
 }
 
 export default function ManageKitsPage() {
+  const router = useRouter()
+  const supabase = createClientComponentClient()
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [sortBy, setSortBy] = useState("newest")
-  const [deleteKitId, setDeleteKitId] = useState(null)
+  const [deleteKitId, setDeleteKitId] = useState<string | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [kits, setKits] = useState<Kit[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Fetch kits from Supabase
+  useEffect(() => {
+
+const fetchKits = async () => {
+  setIsLoading(true)
+  try {
+    // Get all kits without filtering by user
+    const { data, error } = await supabase
+      .from('kits')
+      .select(`
+        id,
+        name,
+        description,
+        category,
+        price,
+        status,
+        image,
+        created_at
+      `)
+      .order('created_at', { ascending: false })
+
+    console.log("Kits query result:", data, error)
+
+    if (error) throw error
+
+    if (!data || data.length === 0) {
+      console.log("No kits found in database")
+      setKits([])
+      setIsLoading(false)
+      return
+    }
+
+    // Format the kit data to match the expected structure
+    const formattedKits: Kit[] = await Promise.all(data.map(async (kit) => {
+      // Get download count
+      const { count: downloadCount, error: downloadError } = await supabase
+        .from('kit_downloads')
+        .select('*', { count: 'exact', head: true })
+        .eq('kit_id', kit.id)
+
+      if (downloadError) console.error("Error fetching downloads:", downloadError)
+
+      // Get file count from kit_files table
+      const { count: fileCount, error: fileCountError } = await supabase
+        .from('kit_files')
+        .select('*', { count: 'exact', head: true })
+        .eq('kit_id', kit.id)
+
+      if (fileCountError) console.error("Error fetching file count:", fileCountError)
+
+      // Get the image URL if there is an image path
+      let imageUrl = '/placeholder.svg?height=40&width=40'
+      if (kit.image) {
+        const { data: imageData } = await supabase.storage
+          .from('kit-images')
+          .getPublicUrl(kit.image)
+
+        imageUrl = imageData?.publicUrl || imageUrl
+      }
+
+      return {
+        id: kit.id,
+        name: kit.name,
+        description: kit.description,
+        category: kit.category,
+        fileCount: fileCount || 0,
+        downloads: downloadCount || 0,
+        status: kit.status,
+        createdAt: kit.created_at,
+        image: imageUrl,
+        price: kit.price || 0
+      }
+    }))
+
+    setKits(formattedKits)
+  } catch (error) {
+    console.error("Error fetching kits:", error)
+    toast({
+      title: "Error",
+      description: "Failed to load your kits. Please try again.",
+      variant: "destructive",
+    })
+  } finally {
+    setIsLoading(false)
+  }
+}
+
+    fetchKits()
+  }, [supabase, router])
+
+  // Update the handleDeleteClick function
+  const handleDeleteClick = (kitId: string) => {
+    setDeleteKitId(kitId)
+    setIsDeleteDialogOpen(true)
+  }
+
+  // Update the handleDeleteConfirm function to actually delete from Supabase
+  const handleDeleteConfirm = async () => {
+    if (!deleteKitId) return;
+    
+    try {
+      // Delete files from kit_files table first (foreign key constraint)
+      const { error: deleteFilesError } = await supabase
+        .from('kit_files')
+        .delete()
+        .eq('kit_id', deleteKitId);
+        
+      if (deleteFilesError) throw deleteFilesError;
+      
+      // Then delete the kit record
+      const { error: deleteKitError } = await supabase
+        .from('kits')
+        .delete()
+        .eq('id', deleteKitId);
+        
+      if (deleteKitError) throw deleteKitError;
+      
+      // Update local state to remove the deleted kit
+      setKits(kits.filter(kit => kit.id !== deleteKitId));
+      
+      toast({
+        title: "Success",
+        description: "Kit has been deleted successfully",
+      });
+    } catch (error) {
+      console.error("Error deleting kit:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete kit. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleteDialogOpen(false);
+      setDeleteKitId(null);
+    }
+  };
 
   // Filter kits based on search query and category
   const filteredKits = kits.filter((kit) => {
@@ -80,16 +224,16 @@ export default function ManageKitsPage() {
     return 0
   })
 
-  const handleDeleteClick = (kitId: string) => {
-    // setDeleteKitId(kitId)
-    setIsDeleteDialogOpen(true)
-  }
-
-  const handleDeleteConfirm = () => {
-    // In a real app, this would call an API to delete the kit
-    console.log(`Deleting kit with ID: ${deleteKitId}`)
-    setIsDeleteDialogOpen(false)
-    setDeleteKitId(null)
+  // Add a loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-2">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <p className="text-muted-foreground">Loading your kits...</p>
+        </div>
+      </div>
+    )
   }
 
   const containerVariants = {
@@ -220,106 +364,142 @@ export default function ManageKitsPage() {
             </div>
 
             <TabsContent value="grid" className="mt-0">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {sortedKits.map((kit) => (
-                  <OrderCard 
-                    key={kit.id}
-                    kit={kit}
-                    onDeleteClick={handleDeleteClick}
-                  />
-                ))}
-              </div>
+              {sortedKits.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {sortedKits.map((kit) => (
+                    <OrderCard
+                      key={kit.id}
+                      kit={kit}
+                      onDeleteClick={handleDeleteClick}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <FileMusic size={64} className="text-muted-foreground mb-4" />
+                  <h3 className="text-xl font-medium mb-2">No kits found</h3>
+                  <p className="text-muted-foreground mb-6">
+                    {searchQuery || selectedCategory !== "all"
+                      ? "Try adjusting your search or filters."
+                      : "Upload your first sound kit to get started."}
+                  </p>
+                  <Button asChild variant="outline">
+                    <Link href="/producer/admin/kits/new">
+                      <Plus size={16} className="mr-2" />
+                      Create New Kit
+                    </Link>
+                  </Button>
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="list" className="mt-0">
               <Card className="glass-card">
                 <CardContent className="p-0">
                   <div className="relative overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="text-xs uppercase border-b border-border">
-                        <tr>
-                          <th className="px-6 py-4 text-left">Name</th>
-                          <th className="px-6 py-4 text-left">Category</th>
-                          <th className="px-6 py-4 text-left">Files</th>
-                          <th className="px-6 py-4 text-left">Downloads</th>
-                          <th className="px-6 py-4 text-left">Created</th>
-                          <th className="px-6 py-4 text-left">Status</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedKits.map((kit) => (
-                          <tr key={kit.id} className="border-b border-border/50 hover:bg-muted/20">
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 relative rounded overflow-hidden shrink-0">
-                                  <Image
-                                    src={kit.image || "/placeholder.svg?height=40&width=40"}
-                                    alt={kit.name}
-                                    fill
-                                    className="object-cover"
-                                  />
-                                </div>
-                                <div className="font-medium">{kit.name}</div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <Badge variant="secondary">
-                                {kit.category === "drum-kit"
-                                  ? "Drum Kit"
-                                  : kit.category === "melody-loops"
-                                    ? "Melody Loops"
-                                    : "Sample Pack"}
-                              </Badge>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">{kit.fileCount}</td>
-                            <td className="px-6 py-4 whitespace-nowrap">{kit.downloads}</td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              {new Date(kit.createdAt).toLocaleDateString()}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <Badge variant={kit.status === "active" ? "default" : "secondary"}>
-                                {kit.status === "active" ? "Active" : "Draft"}
-                              </Badge>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon">
-                                    <MoreHorizontal size={16} />
-                                    <span className="sr-only">Actions</span>
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/producer/admin/kits/${kit.id}`}>
-                                      <FileMusic size={14} className="mr-2" />
-                                      View Details
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/producer/admin/kits/${kit.id}/edit`}>
-                                      <Edit size={14} className="mr-2" />
-                                      Edit Kit
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    className="text-destructive focus:text-destructive"
-                                    onClick={() => handleDeleteClick(kit.id)}
-                                  >
-                                    <Trash2 size={14} className="mr-2" />
-                                    Delete Kit
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </td>
+                    {sortedKits.length > 0 ? (
+                      <table className="w-full text-sm">
+                        <thead className="text-xs uppercase border-b border-border">
+                          <tr>
+                            <th className="px-6 py-4 text-left">Name</th>
+                            <th className="px-6 py-4 text-left">Category</th>
+                            <th className="px-6 py-4 text-left">Files</th>
+                            <th className="px-6 py-4 text-left">Downloads</th>
+                            <th className="px-6 py-4 text-left">Created</th>
+                            <th className="px-6 py-4 text-left">Status</th>
+                            <th className="px-6 py-4 text-right">Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {sortedKits.map((kit) => (
+                            <tr key={kit.id} className="border-b border-border/50 hover:bg-muted/20">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-10 w-10 relative rounded overflow-hidden shrink-0">
+                                    <Image
+                                      src={kit.image || "/placeholder.svg?height=40&width=40"}
+                                      alt={kit.name}
+                                      fill
+                                      className="object-cover"
+                                    />
+                                  </div>
+                                  <div className="font-medium">{kit.name}</div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <Badge variant="secondary">
+                                  {kit.category === "drum-kit"
+                                    ? "Drum Kit"
+                                    : kit.category === "melody-loops"
+                                      ? "Melody Loops"
+                                      : "Sample Pack"}
+                                </Badge>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">{kit.fileCount}</td>
+                              <td className="px-6 py-4 whitespace-nowrap">{kit.downloads}</td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {new Date(kit.createdAt).toLocaleDateString()}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <Badge variant={kit.status === "active" ? "default" : "secondary"}>
+                                  {kit.status === "active" ? "Active" : "Draft"}
+                                </Badge>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-right">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon">
+                                      <MoreHorizontal size={16} />
+                                      <span className="sr-only">Actions</span>
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem asChild>
+                                      <Link href={`/producer/admin/kits/${kit.id}`}>
+                                        <FileMusic size={14} className="mr-2" />
+                                        View Details
+                                      </Link>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem asChild>
+                                      <Link href={`/producer/admin/kits/${kit.id}/edit`}>
+                                        <Edit size={14} className="mr-2" />
+                                        Edit Kit
+                                      </Link>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onClick={() => handleDeleteClick(kit.id)}
+                                    >
+                                      <Trash2 size={14} className="mr-2" />
+                                      Delete Kit
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <FileMusic size={64} className="text-muted-foreground mb-4" />
+                        <h3 className="text-xl font-medium mb-2">No kits found</h3>
+                        <p className="text-muted-foreground mb-6">
+                          {searchQuery || selectedCategory !== "all"
+                            ? "Try adjusting your search or filters."
+                            : "Upload your first sound kit to get started."}
+                        </p>
+                        <Button asChild variant="outline">
+                          <Link href="/producer/admin/kits/new">
+                            <Plus size={16} className="mr-2" />
+                            Create New Kit
+                          </Link>
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -351,73 +531,3 @@ export default function ManageKitsPage() {
     </div>
   )
 }
-
-// Sample data
-const kits: Kit[] = [
-  {
-    id: "1",
-    name: "Midnight Drums",
-    description: "A collection of deep, atmospheric drum samples perfect for trap and hip-hop production.",
-    category: "drum-kit",
-    image: "/placeholder.svg?height=200&width=400",
-    fileCount: 45,
-    downloads: 1245,
-    createdAt: "2023-10-15T12:00:00Z",
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Lo-Fi Dreams",
-    description: "Vintage-inspired samples and loops for creating chill lo-fi beats and ambient soundscapes.",
-    category: "sample-pack",
-    image: "/placeholder.svg?height=200&width=400",
-    fileCount: 38,
-    downloads: 987,
-    createdAt: "2023-09-22T10:30:00Z",
-    status: "active",
-  },
-  {
-    id: "3",
-    name: "Neon Melodies",
-    description: "Bright, synthwave-inspired melody loops with retro vibes and modern production quality.",
-    category: "melody-loops",
-    image: "/placeholder.svg?height=200&width=400",
-    fileCount: 32,
-    downloads: 856,
-    createdAt: "2023-11-05T15:45:00Z",
-    status: "active",
-  },
-  {
-    id: "4",
-    name: "Urban Essentials",
-    description: "Everything you need for modern urban music production, from drums to vocal chops.",
-    category: "sample-pack",
-    image: "/placeholder.svg?height=200&width=400",
-    fileCount: 60,
-    downloads: 742,
-    createdAt: "2023-08-18T09:15:00Z",
-    status: "active",
-  },
-  {
-    id: "5",
-    name: "Trap Universe",
-    description: "Hard-hitting 808s, crisp hi-hats, and punchy snares for trap and drill production.",
-    category: "drum-kit",
-    image: "/placeholder.svg?height=200&width=400",
-    fileCount: 52,
-    downloads: 635,
-    createdAt: "2023-12-01T14:20:00Z",
-    status: "active",
-  },
-  {
-    id: "6",
-    name: "Future Bass Elements",
-    description: "Cutting-edge sounds for future bass and electronic music production.",
-    category: "sample-pack",
-    image: "/placeholder.svg?height=200&width=400",
-    fileCount: 48,
-    downloads: 528,
-    createdAt: "2023-10-28T11:10:00Z",
-    status: "draft",
-  },
-]
