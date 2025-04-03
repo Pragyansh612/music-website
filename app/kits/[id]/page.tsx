@@ -7,7 +7,6 @@ import Link from "next/link"
 import Image from "next/image"
 import { ArrowLeft, Download, FileAudio, Music, Package, Play, Share2, Pause, Volume2, VolumeX } from "lucide-react"
 import { motion } from "framer-motion"
-
 import { Button } from "@/components/ui/button"
 import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
@@ -23,27 +22,30 @@ import { toast } from "@/components/ui/use-toast"
 const supabase = createClientComponentClient()
 
 interface Kit {
-    id: string;
-    name: string;
-    description: string;
-    type: string;
-    fileCount: number;
-    downloads: number;
-    status: string;
-    created_at: string;
-    image: string;
-    price: number;
-    category: string;
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  fileCount: number;
+  downloads: number;
+  status: string;
+  created_at: string;
+  image: string;
+  price: number;
+  category: string;
+  size: number;
 }
 
 interface KitFile {
-    id: string;
-    kit_id: string;
-    name: string;
-    file_url: string;
-    file_type: string;
-    duration?: string;
-    category: string;
+  id: string;
+  kit_id: string;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  file_size: number;
+  google_drive_link: string;
+  duration?: string;
+  category: string;
 }
 
 export default function KitDetailsPage() {
@@ -58,118 +60,126 @@ export default function KitDetailsPage() {
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(0.8)
   const [relatedKits, setRelatedKits] = useState<Kit[]>([])
-
+  console.log(kit)
   useEffect(() => {
     const fetchKitDetails = async () => {
-        setIsLoading(true);
-        try {
-            const { data: kitData, error: kitError } = await supabase
-                .from('kits')
-                .select('*')
-                .eq('id', kitId)
-                .single();
+      setIsLoading(true);
+      try {
+        const { data: kitData, error: kitError } = await supabase
+          .from('kits')
+          .select('*')
+          .eq('id', kitId)
+          .single();
 
-            if (kitError) throw kitError;
+        if (kitError) throw kitError;
 
-            if (!kitData) {
-                toast({
-                    title: "Kit not found",
-                    description: "The requested kit does not exist.",
-                    variant: "destructive",
-                });
-                router.push('/kits');
-                return;
-            }
-            // Set the kit data
-            setKit(kitData);
-
-            // Fetch kit files
-            const { data: filesData, error: filesError } = await supabase
-                .from('kit_files')
-                .select('*')
-                .eq('kit_id', kitId);
-
-            if (filesError) throw filesError;
-
-            setFiles(filesData || []);
-
-            // Fetch related kits
-            const { data: relatedData, error: relatedError } = await supabase
-                .from('kits')
-                .select('*')
-                .neq('id', kitId)
-                .eq('status', 'published')
-                .limit(4);
-
-            if (relatedError) throw relatedError;
-
-            let imageUrl = '/placeholder.svg'
-            if (kitData.image) {
-                const { data: imageData } = await supabase.storage
-                    .from('kit-images')
-                    .getPublicUrl(kitData.image)
-
-                imageUrl = imageData?.publicUrl || imageUrl
-            }
-
-            setKit({
-                ...kitData,
-                image: imageUrl
-            });
-
-            // After fetching files data
-            if (filesData) {
-                // Format the files with proper URLs
-                const formattedFiles = await Promise.all(filesData.map(async (file) => {
-                    // Get the file URL
-                    const { data: fileUrlData } = await supabase.storage
-                        .from('kit-files')
-                        .getPublicUrl(file.file_path)
-
-                    return {
-                        ...file,
-                        file_url: fileUrlData?.publicUrl || '',
-                    }
-                }))
-
-                setFiles(formattedFiles);
-            }
-            setRelatedKits(relatedData || []);
-        } catch (error) {
-            console.error("Error fetching kit details:", error);
-            toast({
-                title: "Error",
-                description: "Failed to load kit details. Please try again.",
-                variant: "destructive",
-            });
-        } finally {
-            setIsLoading(false);
+        if (!kitData) {
+          toast({
+            title: "Kit not found",
+            description: "The requested kit does not exist.",
+            variant: "destructive",
+          });
+          router.push('/kits');
+          return;
         }
+        // Set the kit data
+        setKit(kitData);
+
+        // Fetch kit files
+        const { data: filesData, error: filesError } = await supabase
+          .from('kit_files')
+          .select('*')
+          .eq('kit_id', kitId);
+
+        if (filesError) throw filesError;
+
+        setFiles(filesData || []);
+
+        // Fetch related kits
+        const { data: relatedData, error: relatedError } = await supabase
+          .from('kits')
+          .select('*')
+          .neq('id', kitId)
+          .eq('status', 'published')
+          .limit(4);
+
+        if (relatedError) throw relatedError;
+
+        let imageUrl = '/placeholder.svg'
+        if (kitData.image) {
+          const { data: imageData } = await supabase.storage
+            .from('kit-images')
+            .getPublicUrl(kitData.image)
+
+          imageUrl = imageData?.publicUrl || imageUrl
+        }
+
+        setKit({
+          ...kitData,
+          image: imageUrl
+        });
+
+        // After fetching files data
+        if (filesData) {
+          // Format the files with proper URLs
+          const formattedFiles = await Promise.all(filesData.map(async (file) => {
+            return {
+              ...file,
+              file_url: file.google_drive_link || '',
+            }
+          }));
+
+          setFiles(formattedFiles);
+          console.log("Kit files data:", formattedFiles);
+
+          // After you've already set the kit data
+          setKit(kitData);
+          // Later, after processing files
+          const totalSize = filesData.reduce((acc, file) => acc + (file.file_size || 0), 0);
+          if (kitData) {
+            setKit({
+              ...kitData,
+              image: imageUrl,
+              size: (totalSize / (1024 * 1024)).toFixed(2) // Convert bytes to MB
+            });
+          }
+          setRelatedKits(relatedData || []);
+        }
+      } catch (error) {
+        console.error("Error fetching kit details:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load kit details. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     if (kitId) {
-        fetchKitDetails();
+      fetchKitDetails();
     }
-}, [kitId, router]);
+  }, [kitId, router]);
 
-console.log(kit)
+  console.log(kit)
 
-if (isLoading || !kit) {
+  if (isLoading || !kit) {
     return (
-        <div className="flex min-h-screen flex-col items-center justify-center">
-            <p>Loading kit details...</p>
-        </div>
+      <div className="flex min-h-screen flex-col items-center justify-center">
+        <p>Loading kit details...</p>
+      </div>
     );
-}
+  }
 
-// SEO data for this specific kit
-const seoData = {
+  // SEO data for this specific kit
+  const seoData = {
     title: `${kit.name} - Free Music Kit | ProdByShyrap`,
     description: `Download ${kit.name} - ${kit.description}. High-quality ${kit.type} for music producers.`,
     keywords: `${kit.name}, ${kit.type}, free samples, music production, music kit, download`,
     ogImage: kit.image,
     ogType: "product",
-}
+  }
 
   // Schema.org structured data for this kit
   const schemaData = {
@@ -179,16 +189,16 @@ const seoData = {
     image: kit.image,
     description: kit.description,
     brand: {
-        "@type": "Brand",
-        name: "ProdByShyrap",
+      "@type": "Brand",
+      name: "ProdByShyrap",
     },
     offers: {
-        "@type": "Offer",
-        price: "0.00",
-        priceCurrency: "USD",
-        availability: "https://schema.org/InStock",
+      "@type": "Offer",
+      price: "0.00",
+      priceCurrency: "USD",
+      availability: "https://schema.org/InStock",
     },
-}
+  }
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -357,20 +367,24 @@ const seoData = {
                   </div>
                   <div className="flex flex-col glass-card p-3 rounded-lg">
                     <span className="text-sm text-muted-foreground">Size</span>
-                    {/* <span className="font-medium">{kit.size} MB</span> */}
+                    <span className="font-medium">{kit.size ? `${kit.size} MB` : 'Unknown size'}</span>
                   </div>
                   <div className="flex flex-col glass-card p-3 rounded-lg">
                     <span className="text-sm text-muted-foreground">Released</span>
-                    <span className="font-medium">{kit.created_at}</span>
+                    <span className="font-medium">{new Date(kit.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
 
                 <div className="mt-auto space-y-4">
                   <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                    <Button className="w-full gap-2 glass relative overflow-hidden group h-12 text-lg" size="lg">
+                    <Button
+                      className="w-full gap-2 glass relative overflow-hidden group h-12 text-lg"
+                      size="lg"
+                      onClick={() => router.push(`/kits/${kitId}/download`)}
+                    >
                       <span className="relative z-10 text-black group-hover:text-white transition-colors duration-300">Download Kit</span>
                       <Download size={18} className="relative z-10" />
-                      <span className="absolute inset-0  w-full h-full bg-primary/80 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></span>
+                      <span className="absolute inset-0 w-full h-full bg-primary/80 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></span>
                     </Button>
                   </motion.div>
                   <div className="flex gap-2">
@@ -381,7 +395,7 @@ const seoData = {
                     <Button
                       variant="outline"
                       className={`flex-1 gap-2 glass ${isPlaying ? "bg-primary/20" : ""}`}
-                      // onClick={handlePlayAll}
+                    // onClick={handlePlayAll}
                     >
                       {isPlaying ? <Pause size={16} /> : <Play size={16} />}
                       {isPlaying ? "Stop Preview" : "Preview All"}
@@ -402,80 +416,38 @@ const seoData = {
             <TabsContent value="samples">
               <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible">
                 <motion.div variants={itemVariants}>
-                  <h3 className="text-lg font-medium mb-4">Drums</h3>
+                  <h3 className="text-lg font-medium mb-4">Files</h3>
                   <div className="space-y-3">
-                    {/* {kit.samples.drums.map((sample, index) => (
+                    {files.map((file, index) => (
                       <motion.div
-                        key={index}
+                        key={file.id}
                         variants={itemVariants}
                         whileHover={{ scale: 1.01 }}
                         transition={{ type: "spring", stiffness: 400, damping: 10 }}
-                        className={`${currentPreview === sample.url ? "bg-primary/20 glass-card" : ""}`}
                       >
                         <div className="flex items-center gap-3 p-3 rounded-lg glass hover:bg-primary/10 transition-colors">
-                          <button
-                            onClick={() => handlePlaySingle(sample.url)}
-                            className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center"
-                          >
-                            {currentPreview === sample.url && isPlaying ? (
-                              <Pause size={16} />
-                            ) : (
-                              <Play size={16} className="ml-0.5" />
-                            )}
-                          </button>
+                          <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
+                            <Package size={16} />
+                          </div>
                           <div className="flex-1">
-                            <p className="font-medium">{sample.name}</p>
+                            <p className="font-medium">{file.file_name}</p>
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                               <FileAudio size={12} />
-                              <span>WAV • 24-bit • {sample.duration || "0:15"}</span>
+                              <span>{file.file_type} • {(file.file_size / (1024 * 1024)).toFixed(2)} MB</span>
                             </div>
                           </div>
-                          <Button variant="ghost" size="sm" className="gap-1">
-                            <Download size={14} />
-                            <span className="hidden sm:inline">Preview</span>
-                          </Button>
-                        </div>
-                      </motion.div>
-                    ))} */}
-                  </div>
-                </motion.div>
-
-                <motion.div variants={itemVariants}>
-                  <h3 className="text-lg font-medium mb-4">Melodies</h3>
-                  <div className="space-y-3">
-                    {/* {kit.samples.melodies.map((sample, index) => (
-                      <motion.div
-                        key={index}
-                        variants={itemVariants}
-                        whileHover={{ scale: 1.01 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 10 }}
-                        className={`${currentPreview === sample.url ? "bg-primary/20 glass-card" : ""}`}
-                      >
-                        <div className="flex items-center gap-3 p-3 rounded-lg glass hover:bg-primary/10 transition-colors">
-                          <button
-                            onClick={() => handlePlaySingle(sample.url)}
-                            className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center"
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() => window.open(file.google_drive_link, '_blank')}
                           >
-                            {currentPreview === sample.url && isPlaying ? (
-                              <Pause size={16} />
-                            ) : (
-                              <Play size={16} className="ml-0.5" />
-                            )}
-                          </button>
-                          <div className="flex-1">
-                            <p className="font-medium">{sample.name}</p>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <Music size={12} />
-                              <span>WAV • 24-bit • {sample.duration || "0:30"}</span>
-                            </div>
-                          </div>
-                          <Button variant="ghost" size="sm" className="gap-1">
                             <Download size={14} />
-                            <span className="hidden sm:inline">Preview</span>
+                            <span className="hidden sm:inline">Download</span>
                           </Button>
                         </div>
                       </motion.div>
-                    ))} */}
+                    ))}
                   </div>
                 </motion.div>
               </motion.div>

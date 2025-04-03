@@ -41,7 +41,7 @@ export function SiteHeader() {
             <ThemeToggle />
             {/* <Button asChild variant="premium" size="sm" className="hidden sm:flex btn-shine">
               <Link href="/kits">
-                <span className="relative z-10 ">Download Kits</span>
+                <span className="relative z-10">Download Kits</span>
               </Link>
             </Button> */}
           </nav>
@@ -51,4 +51,3 @@ export function SiteHeader() {
     </motion.header>
   )
 }
-

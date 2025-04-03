@@ -23,7 +23,7 @@ const navItems = [
 export function MobileNav() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
-
+  
   const menuVariants = {
     hidden: { opacity: 0, x: 20 },
     visible: (i: number) => ({
@@ -36,16 +36,23 @@ export function MobileNav() {
       },
     }),
   }
-
+  
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild className="md:hidden">
-        <Button variant="ghost" size="icon" className="ml-2 glass-card hover:bg-white/40 dark:hover:bg-black/40">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="ml-2 glass-card flex items-center justify-center hover:bg-white/40 dark:hover:bg-black/40"
+        >
           <Menu className="h-5 w-5" />
           <span className="sr-only">Toggle menu</span>
         </Button>
       </SheetTrigger>
-      <SheetContent side="right" className="pr-0 glass border-l border-white/20 dark:border-white/10">
+      <SheetContent 
+        side="right" 
+        className="pr-0 bg-background/95 backdrop-blur-md dark:bg-background/90 border-l border-white/20 dark:border-white/10"
+      >
         <div className="px-7">
           <Link href="/" className="flex items-center" onClick={() => setOpen(false)}>
             <span className="font-bold text-xl">
@@ -61,7 +68,7 @@ export function MobileNav() {
                   href={item.href}
                   onClick={() => setOpen(false)}
                   className={cn(
-                    "text-lg font-medium transition-colors hover:text-primary block py-2 flex items-center",
+                    "text-lg font-medium transition-colors hover:text-primary py-2 flex items-center",
                     pathname === item.href ? "text-primary" : "text-muted-foreground",
                   )}
                 >
@@ -84,4 +91,3 @@ export function MobileNav() {
     </Sheet>
   )
 }
-
