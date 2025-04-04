@@ -48,6 +48,18 @@ interface KitFile {
   category: string;
 }
 
+interface PreviewSample {
+  id: string;
+  kit_id: string;
+  file_name: string;
+  file_path: string;
+  file_type: string;
+  file_size: number;
+  category: string;
+  file_url?: string;
+  duration: number;
+}
+
 export default function KitDetailsPage() {
   const router = useRouter();
   const params = useParams();
@@ -60,7 +72,9 @@ export default function KitDetailsPage() {
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(0.8)
   const [relatedKits, setRelatedKits] = useState<Kit[]>([])
-  console.log(kit)
+  const [previewSamples, setPreviewSamples] = useState<PreviewSample[]>([]);
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+
   useEffect(() => {
     const fetchKitDetails = async () => {
       setIsLoading(true);
@@ -119,9 +133,8 @@ export default function KitDetailsPage() {
           image: imageUrl
         });
 
-        // After fetching files data
+        // Format the files with proper URLs
         if (filesData) {
-          // Format the files with proper URLs
           const formattedFiles = await Promise.all(filesData.map(async (file) => {
             return {
               ...file,
@@ -130,11 +143,8 @@ export default function KitDetailsPage() {
           }));
 
           setFiles(formattedFiles);
-          console.log("Kit files data:", formattedFiles);
-
-          // After you've already set the kit data
-          setKit(kitData);
-          // Later, after processing files
+          
+          // Calculate total size
           const totalSize = filesData.reduce((acc, file) => acc + (file.file_size || 0), 0);
           if (kitData) {
             setKit({
@@ -144,6 +154,34 @@ export default function KitDetailsPage() {
             });
           }
           setRelatedKits(relatedData || []);
+        }
+        
+        // Fetch preview samples
+        const { data: previewData, error: previewError } = await supabase
+          .from('kit_previews')
+          .select('*')
+          .eq('kit_id', kitId);
+
+        if (previewError) throw previewError;
+
+        // Format the preview files with proper URLs
+        if (previewData) {
+          const formattedPreviews = await Promise.all(previewData.map(async (preview) => {
+            // Get the file URL
+            const { data: fileUrlData } = await supabase.storage
+              .from('kit-previews')
+              .getPublicUrl(preview.file_path);
+
+            return {
+              ...preview,
+              file_url: fileUrlData?.publicUrl || '',
+              // Set default duration if not available
+              duration: preview.duration || 30,
+            };
+          }));
+
+          console.log("Preview samples:", formattedPreviews);
+          setPreviewSamples(formattedPreviews);
         }
       } catch (error) {
         console.error("Error fetching kit details:", error);
@@ -160,9 +198,128 @@ export default function KitDetailsPage() {
     if (kitId) {
       fetchKitDetails();
     }
+    
+    // Initialize audio element
+    const audio = new Audio();
+    audio.onended = () => {
+      setIsPlaying(false);
+      setCurrentPreview(null);
+    };
+    setAudioElement(audio);
+    
+    // Cleanup function
+    return () => {
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.src = '';
+      }
+    };
   }, [kitId, router]);
 
-  console.log(kit)
+  // Update audio volume when volume state changes
+  useEffect(() => {
+    if (audioElement) {
+      audioElement.volume = isMuted ? 0 : volume;
+    }
+  }, [volume, isMuted, audioElement]);
+
+  const handlePlayAll = () => {
+    if (isPlaying) {
+      if (audioElement) {
+        audioElement.pause();
+      }
+      setIsPlaying(false);
+      setCurrentPreview(null);
+    } else if (previewSamples.length > 0) {
+      const firstPreview = previewSamples[0];
+      handlePlaySingle(firstPreview.file_url || '');
+    }
+  };
+
+  const handlePlaySingle = (url: string) => {
+    if (!audioElement) return;
+    
+    if (currentPreview === url && isPlaying) {
+      audioElement.pause();
+      setIsPlaying(false);
+      setCurrentPreview(null);
+    } else {
+      // Stop current audio if playing
+      if (isPlaying) {
+        audioElement.pause();
+      }
+      
+      // Set new audio source and play
+      audioElement.src = url;
+      audioElement.volume = isMuted ? 0 : volume;
+      
+      // Play the audio
+      const playPromise = audioElement.play();
+      
+      // Handle play promise (might be rejected if user hasn't interacted with the page)
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            setCurrentPreview(url);
+          })
+          .catch(error => {
+            console.error("Playback failed:", error);
+            toast({
+              title: "Playback Error",
+              description: "Could not play the audio. Please try again.",
+              variant: "destructive",
+            });
+          });
+      }
+    }
+  };
+
+  const toggleMute = () => {
+    if (audioElement) {
+      audioElement.muted = !isMuted;
+    }
+    setIsMuted(!isMuted);
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = Number.parseFloat(e.target.value);
+    setVolume(newVolume);
+    
+    if (audioElement) {
+      audioElement.volume = newVolume;
+    }
+    
+    if (newVolume === 0) {
+      setIsMuted(true);
+      if (audioElement) audioElement.muted = true;
+    } else {
+      setIsMuted(false);
+      if (audioElement) audioElement.muted = false;
+    }
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.05,
+      },
+    },
+  };
+
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: {
+      y: 0,
+      opacity: 1,
+      transition: {
+        duration: 0.5,
+        ease: [0.22, 1, 0.36, 1],
+      },
+    },
+  };
 
   if (isLoading || !kit) {
     return (
@@ -179,7 +336,7 @@ export default function KitDetailsPage() {
     keywords: `${kit.name}, ${kit.type}, free samples, music production, music kit, download`,
     ogImage: kit.image,
     ogType: "product",
-  }
+  };
 
   // Schema.org structured data for this kit
   const schemaData = {
@@ -198,65 +355,7 @@ export default function KitDetailsPage() {
       priceCurrency: "USD",
       availability: "https://schema.org/InStock",
     },
-  }
-
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.05,
-      },
-    },
-  }
-
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: {
-      y: 0,
-      opacity: 1,
-      transition: {
-        duration: 0.5,
-        ease: [0.22, 1, 0.36, 1],
-      },
-    },
-  }
-
-  // const handlePlayAll = () => {
-  //   if (isPlaying) {
-  //     setIsPlaying(false)
-  //     setCurrentPreview(null)
-  //   } else {
-  //     setIsPlaying(true)
-  //     // Start with the first preview
-  //     const firstPreview = [...kit.samples.drums, ...kit.samples.melodies][0]
-  //     setCurrentPreview(firstPreview.url)
-  //   }
-  // }
-
-  const handlePlaySingle = (url: string) => {
-    if (currentPreview === url) {
-      setIsPlaying(false)
-      setCurrentPreview(null)
-    } else {
-      setIsPlaying(true)
-      setCurrentPreview(url)
-    }
-  }
-
-  const toggleMute = () => {
-    setIsMuted(!isMuted)
-  }
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = Number.parseFloat(e.target.value)
-    setVolume(newVolume)
-    if (newVolume === 0) {
-      setIsMuted(true)
-    } else {
-      setIsMuted(false)
-    }
-  }
+  };
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -302,7 +401,7 @@ export default function KitDetailsPage() {
                 {/* Play All Button Overlay */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <motion.button
-                    // onClick={handlePlayAll}
+                    onClick={handlePlayAll}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
                     className="h-16 w-16 rounded-full bg-primary/90 flex items-center justify-center shadow-lg"
@@ -348,9 +447,6 @@ export default function KitDetailsPage() {
                 <div className="mb-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Badge className="glass">{kit.type}</Badge>
-                    <Badge variant="outline" className="glass">
-                      {/* {kit.bpm} BPM */}
-                    </Badge>
                   </div>
                   <h1 className="text-3xl font-bold gradient-text">{kit.name}</h1>
                   <p className="text-muted-foreground mt-2">{kit.description}</p>
@@ -395,7 +491,7 @@ export default function KitDetailsPage() {
                     <Button
                       variant="outline"
                       className={`flex-1 gap-2 glass ${isPlaying ? "bg-primary/20" : ""}`}
-                    // onClick={handlePlayAll}
+                      onClick={handlePlayAll}
                     >
                       {isPlaying ? <Pause size={16} /> : <Play size={16} />}
                       {isPlaying ? "Stop Preview" : "Preview All"}
@@ -414,42 +510,115 @@ export default function KitDetailsPage() {
             </TabsList>
 
             <TabsContent value="samples">
-              <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible">
-                <motion.div variants={itemVariants}>
-                  <h3 className="text-lg font-medium mb-4">Files</h3>
-                  <div className="space-y-3">
-                    {files.map((file, index) => (
-                      <motion.div
-                        key={file.id}
-                        variants={itemVariants}
-                        whileHover={{ scale: 1.01 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 10 }}
-                      >
-                        <div className="flex items-center gap-3 p-3 rounded-lg glass hover:bg-primary/10 transition-colors">
-                          <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
-                            <Package size={16} />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-medium">{file.file_name}</p>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <FileAudio size={12} />
-                              <span>{file.file_type} • {(file.file_size / (1024 * 1024)).toFixed(2)} MB</span>
+              <motion.div
+                className="space-y-6 glass-card p-6 rounded-lg"
+                variants={containerVariants}
+                initial="hidden"
+                animate="visible"
+              >
+                {previewSamples.length > 0 ? (
+                  <motion.div variants={itemVariants}>
+                    <h3 className="text-xl font-semibold mb-4 gradient-text">Preview Samples</h3>
+                    <div className="space-y-4">
+                      {previewSamples.map((sample, index) => (
+                        <motion.div
+                          key={sample.id}
+                          variants={itemVariants}
+                          whileHover={{ scale: 1.01 }}
+                          transition={{ type: "spring", stiffness: 400, damping: 10 }}
+                          className={`rounded-lg ${currentPreview === sample.file_url ? "bg-primary/20 border border-primary/30" : " backdrop-blur-sm border border-white/10"}`}
+                        >
+                          <div className="flex items-center gap-4 p-4 transition-colors">
+                            <button
+                              onClick={() => handlePlaySingle(sample.file_url || '')}
+                              className={`h-10 w-10 rounded-full flex items-center justify-center transition-all ${currentPreview === sample.file_url && isPlaying
+                                ? "bg-primary/20 text-primary-foreground"
+                                : "bg-white/10 hover:bg-primary/40"
+                                }`}
+                            >
+                              {currentPreview === sample.file_url && isPlaying ? (
+                                <Pause size={18} />
+                              ) : (
+                                <Play size={18} className="ml-0.5" />
+                              )}
+                            </button>
+
+                            <div className="flex-1">
+                              <p className="font-medium text-foreground">{sample.file_name}</p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                                <FileAudio size={12} />
+                                <span>{sample.file_type.split('/')[1].toUpperCase()} • Preview Sample</span>
+                              </div>
                             </div>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-1"
-                            onClick={() => window.open(file.google_drive_link, '_blank')}
-                          >
-                            <Download size={14} />
-                            <span className="hidden sm:inline">Download</span>
-                          </Button>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
+
+                          {currentPreview === sample.file_url && isPlaying && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              className="px-4 pb-4 pt-0"
+                            >
+                              {/* Audio Progress Bar */}
+                              <div className="h-2 w-full bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                                <motion.div
+                                  className="h-full bg-primary"
+                                  initial={{ width: "0%" }}
+                                  animate={{ width: "100%" }}
+                                  transition={{
+                                    duration: sample.duration || 30,
+                                    ease: "linear"
+                                  }}
+                                />
+                              </div>
+
+                              {/* Audio Controls */}
+                              <div className="flex justify-between items-center mt-3">
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    onClick={toggleMute}
+                                    className="text-foreground/70 hover:text-foreground transition-colors"
+                                  >
+                                    {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                                  </button>
+                                  <div className="relative group">
+                                    <div className="w-24 h-2 bg-black/10 dark:bg-white/10 rounded-full relative">
+                                      <div
+                                        className="absolute inset-y-0 left-0 bg-primary rounded-full"
+                                        style={{ width: `${volume * 100}%` }}
+                                      ></div>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min="0"
+                                      max="1"
+                                      step="0.01"
+                                      value={volume}
+                                      onChange={handleVolumeChange}
+                                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                      aria-label="Volume control"
+                                    />
+                                    <div className="absolute left-0 right-0 -bottom-6 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-foreground/70">
+                                      {Math.round(volume * 100)}%
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <span className="text-xs text-foreground/70">
+                                  00:00 / {sample.duration ? `${Math.floor(sample.duration / 60)}:${(sample.duration % 60).toString().padStart(2, '0')}` : "00:30"}
+                                </span>
+                              </div>
+                            </motion.div>
+                          )}
+                        </motion.div>
+                      ))}
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div variants={itemVariants} className="text-center py-8">
+                    <p className="text-muted-foreground">No preview samples available for this kit.</p>
+                  </motion.div>
+                )}
               </motion.div>
             </TabsContent>
 
@@ -465,8 +634,7 @@ export default function KitDetailsPage() {
 
                 <h3>What's Included</h3>
                 <ul>
-                  {/* <li>{kit.samples.drums.length} drum samples (kicks, snares, hi-hats, percussion)</li>
-                  <li>{kit.samples.melodies.length} melodic loops</li> */}
+                  <li>{files.length} audio files</li>
                   <li>24-bit WAV format</li>
                   <li>Royalty-free for commercial and non-commercial use</li>
                 </ul>
@@ -540,67 +708,48 @@ export default function KitDetailsPage() {
               whileInView="visible"
               viewport={{ once: true, margin: "-100px" }}
             >
-              {kits
-                .filter((k) => k.id !== params.id)
-                .slice(0, 4)
-                .map((relatedKit) => (
-                  <motion.div key={relatedKit.id} variants={itemVariants}>
-                    <Card className="glass-card overflow-hidden group h-full flex flex-col">
-                      <div className="aspect-square relative overflow-hidden">
-                        <Image
-                          src={relatedKit.image || "/placeholder.svg"}
-                          alt={`${relatedKit.title} - ${relatedKit.type} by ProdByShyrap`}
-                          fill
-                          className="object-cover transition-transform duration-500 group-hover:scale-110"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                        <div className="absolute top-2 right-2">
-                          <Badge variant="secondary" className="glass">
-                            {relatedKit.type}
-                          </Badge>
-                        </div>
+              {relatedKits.slice(0, 4).map((relatedKit) => (
+                <motion.div key={relatedKit.id} variants={itemVariants}>
+                  <Card className="glass-card overflow-hidden group h-full flex flex-col">
+                    <div className="aspect-square relative overflow-hidden">
+                      <Image
+                        src={relatedKit.image || "/placeholder.svg"}
+                        alt={`${relatedKit.name} - ${relatedKit.type} by ProdByShyrap`}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="absolute top-2 right-2">
+                        <Badge variant="secondary" className="glass">
+                          {relatedKit.type}
+                        </Badge>
                       </div>
-                      <CardContent className="p-4">
-                        <h3 className="font-medium truncate group-hover:text-primary transition-colors duration-300">
-                          {relatedKit.title}
-                        </h3>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                          <Package size={12} />
-                          <span>{relatedKit.fileCount} files</span>
-                        </div>
-                        <Button asChild size="sm" className="w-full mt-3 glass relative overflow-hidden group/btn">
-                          <Link href={`/kits/${relatedKit.id}`}>
-                            <span className="relative z-10">View Kit</span>
-                            <span className="absolute inset-0 w-full h-full bg-primary/80 transform translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 ease-out"></span>
-                          </Link>
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                ))}
+                    </div>
+                    <CardContent className="p-4">
+                      <h3 className="font-medium truncate group-hover:text-primary transition-colors duration-300">
+                        {relatedKit.name}
+                      </h3>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                        <Package size={12} />
+                        <span>{relatedKit.fileCount} files</span>
+                      </div>
+                      <Button asChild size="sm" className="w-full mt-3 glass relative overflow-hidden group/btn">
+                        <Link href={`/kits/${relatedKit.id}`}>
+                          <span className="relative z-10">View Kit</span>
+                          <span className="absolute inset-0 w-full h-full bg-primary/80 transform translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 ease-out"></span>
+                        </Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
             </motion.div>
           </div>
         </div>
       </main>
       <SiteFooter />
-
-      {/* Hidden audio element for preview playback */}
-      {currentPreview && (
-        <audio
-          src={currentPreview}
-          autoPlay={isPlaying}
-          loop={false}
-          muted={isMuted}
-          // volume={volume}
-          onEnded={() => {
-            setIsPlaying(false)
-            setCurrentPreview(null)
-          }}
-          className="hidden"
-        />
-      )}
     </div>
-  )
+  );
 }
 
 // Sample data with enhanced sample information

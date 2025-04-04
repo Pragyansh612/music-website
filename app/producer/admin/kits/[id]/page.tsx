@@ -44,6 +44,18 @@ interface KitFile {
     category: string;
 }
 
+interface PreviewSample {
+    id: string;
+    kit_id: string;
+    file_name: string;
+    file_path: string;
+    file_type: string;
+    file_size: number;
+    category: string;
+    file_url?: string;
+    duration: number;
+}
+
 export default function KitDetailsPage() {
     const router = useRouter();
     const params = useParams();
@@ -56,6 +68,7 @@ export default function KitDetailsPage() {
     const [isMuted, setIsMuted] = useState(false)
     const [volume, setVolume] = useState(0.8)
     const [relatedKits, setRelatedKits] = useState<Kit[]>([])
+    const [previewSamples, setPreviewSamples] = useState<PreviewSample[]>([]);
 
     useEffect(() => {
         const fetchKitDetails = async () => {
@@ -133,6 +146,30 @@ export default function KitDetailsPage() {
                     setFiles(formattedFiles);
                 }
                 setRelatedKits(relatedData || []);
+
+                const { data: previewData, error: previewError } = await supabase
+                    .from('kit_previews')
+                    .select('*')
+                    .eq('kit_id', kitId);
+
+                if (previewError) throw previewError;
+
+                // Format the preview files with proper URLs
+                if (previewData) {
+                    const formattedPreviews = await Promise.all(previewData.map(async (preview) => {
+                        // Get the file URL
+                        const { data: fileUrlData } = await supabase.storage
+                            .from('kit-previews')
+                            .getPublicUrl(preview.file_path);
+
+                        return {
+                            ...preview,
+                            file_url: fileUrlData?.publicUrl || '',
+                        };
+                    }));
+
+                    setPreviewSamples(formattedPreviews);
+                }
             } catch (error) {
                 console.error("Error fetching kit details:", error);
                 toast({
@@ -148,6 +185,7 @@ export default function KitDetailsPage() {
         if (kitId) {
             fetchKitDetails();
         }
+
     }, [kitId, router]);
 
     console.log(kit)
@@ -373,83 +411,106 @@ export default function KitDetailsPage() {
                         </TabsList>
 
                         <TabsContent value="samples">
-                            <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible">
-                                {drumFiles.length > 0 && (
+                            <motion.div
+                                className="space-y-6 glass-card p-6 rounded-lg"
+                                variants={containerVariants}
+                                initial="hidden"
+                                animate="visible"
+                            >
+                                {previewSamples.length > 0 && (
                                     <motion.div variants={itemVariants}>
-                                        <h3 className="text-lg font-medium mb-4">Drums</h3>
-                                        <div className="space-y-3">
-                                            {drumFiles.map((sample, index) => (
+                                        <h3 className="text-xl font-semibold mb-4 gradient-text">Preview Samples</h3>
+                                        <div className="space-y-4">
+                                            {previewSamples.map((sample, index) => (
                                                 <motion.div
                                                     key={index}
                                                     variants={itemVariants}
                                                     whileHover={{ scale: 1.01 }}
                                                     transition={{ type: "spring", stiffness: 400, damping: 10 }}
-                                                    className={`${currentPreview === sample.file_url ? "bg-primary/20 glass-card" : ""}`}
+                                                    className={`rounded-lg ${currentPreview === sample.file_url ? "bg-primary/20 border border-primary/30" : " backdrop-blur-sm border border-white/10"}`}
                                                 >
-                                                    <div className="flex items-center gap-3 p-3 rounded-lg glass hover:bg-primary/10 transition-colors">
+                                                    <div className="flex items-center gap-4 p-4 transition-colors">
                                                         <button
-                                                            onClick={() => handlePlaySingle(sample.file_url)}
-                                                            className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center"
+                                                            onClick={() => handlePlaySingle(sample.file_url || '')}
+                                                            className={`h-10 w-10 rounded-full flex items-center justify-center transition-all ${currentPreview === sample.file_url && isPlaying
+                                                                    ? "bg-primary/20 text-primary-foreground"
+                                                                    : "bg-white/10 hover:bg-primary/40"
+                                                                }`}
                                                         >
                                                             {currentPreview === sample.file_url && isPlaying ? (
-                                                                <Pause size={16} />
+                                                                <Pause size={18} />
                                                             ) : (
-                                                                <Play size={16} className="ml-0.5" />
+                                                                <Play size={18} className="ml-0.5" />
                                                             )}
                                                         </button>
-                                                        <div className="flex-1">
-                                                            <p className="font-medium">{sample.name}</p>
-                                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                                <FileAudio size={12} />
-                                                                <span>WAV • 24-bit • {sample.duration || "0:15"}</span>
-                                                            </div>
-                                                        </div>
-                                                        <Button variant="ghost" size="sm" className="gap-1">
-                                                            <Download size={14} />
-                                                            <span className="hidden sm:inline">Download</span>
-                                                        </Button>
-                                                    </div>
-                                                </motion.div>
-                                            ))}
-                                        </div>
-                                    </motion.div>
-                                )}
 
-                                {melodyFiles.length > 0 && (
-                                    <motion.div variants={itemVariants}>
-                                        <h3 className="text-lg font-medium mb-4">Melodies</h3>
-                                        <div className="space-y-3">
-                                            {melodyFiles.map((sample, index) => (
-                                                <motion.div
-                                                    key={index}
-                                                    variants={itemVariants}
-                                                    whileHover={{ scale: 1.01 }}
-                                                    transition={{ type: "spring", stiffness: 400, damping: 10 }}
-                                                    className={`${currentPreview === sample.file_url ? "bg-primary/20 glass-card" : ""}`}
-                                                >
-                                                    <div className="flex items-center gap-3 p-3 rounded-lg glass hover:bg-primary/10 transition-colors">
-                                                        <button
-                                                            onClick={() => handlePlaySingle(sample.file_url)}
-                                                            className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center"
-                                                        >
-                                                            {currentPreview === sample.file_url && isPlaying ? (
-                                                                <Pause size={16} />
-                                                            ) : (
-                                                                <Play size={16} className="ml-0.5" />
-                                                            )}
-                                                        </button>
                                                         <div className="flex-1">
-                                                            <p className="font-medium">{sample.name}</p>
-                                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                                <Music size={12} />
-                                                                <span>WAV • 24-bit • {sample.duration || "0:30"}</span>
+                                                            <p className="font-medium text-foreground">{sample.file_name}</p>
+                                                            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                                                                <FileAudio size={12} />
+                                                                <span>{sample.file_type.split('/')[1].toUpperCase()} • Preview Sample</span>
                                                             </div>
                                                         </div>
-                                                        <Button variant="ghost" size="sm" className="gap-1">
-                                                            <Download size={14} />
-                                                            <span className="hidden sm:inline">Download</span>
-                                                        </Button>
                                                     </div>
+
+                                                    {currentPreview === sample.file_url && isPlaying && (
+                                                        <motion.div
+                                                            initial={{ opacity: 0, height: 0 }}
+                                                            animate={{ opacity: 1, height: "auto" }}
+                                                            exit={{ opacity: 0, height: 0 }}
+                                                            className="px-4 pb-4 pt-0"
+                                                        >
+                                                            {/* Audio Progress Bar */}
+                                                            <div className="h-2 w-full bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                                                                <motion.div
+                                                                    className="h-full bg-primary"
+                                                                    initial={{ width: "0%" }}
+                                                                    animate={{ width: "100%" }}
+                                                                    transition={{
+                                                                        duration: sample.duration || 30,
+                                                                        ease: "linear"
+                                                                    }}
+                                                                />
+                                                            </div>
+
+                                                            {/* Audio Controls */}
+                                                            <div className="flex justify-between items-center mt-3">
+                                                                <div className="flex items-center gap-3">
+                                                                    <button
+                                                                        onClick={toggleMute}
+                                                                        className="text-foreground/70 hover:text-foreground transition-colors"
+                                                                    >
+                                                                        {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                                                                    </button>
+                                                                    <div className="relative group">
+                                                                        <div className="w-24 h-2 bg-black/10 dark:bg-white/10 rounded-full relative">
+                                                                            <div
+                                                                                className="absolute inset-y-0 left-0 bg-primary rounded-full"
+                                                                                style={{ width: `${volume * 100}%` }}
+                                                                            ></div>
+                                                                        </div>
+                                                                        <input
+                                                                            type="range"
+                                                                            min="0"
+                                                                            max="1"
+                                                                            step="0.01"
+                                                                            value={volume}
+                                                                            onChange={handleVolumeChange}
+                                                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                                            aria-label="Volume control"
+                                                                        />
+                                                                        <div className="absolute left-0 right-0 -bottom-6 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-foreground/70">
+                                                                            {Math.round(volume * 100)}%
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <span className="text-xs text-foreground/70">
+                                                                    00:00 / {sample.duration ? `${Math.floor(sample.duration / 60)}:${(sample.duration % 60).toString().padStart(2, '0')}` : "00:30"}
+                                                                </span>
+                                                            </div>
+                                                        </motion.div>
+                                                    )}
                                                 </motion.div>
                                             ))}
                                         </div>
