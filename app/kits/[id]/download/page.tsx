@@ -60,6 +60,7 @@ export default function KitDownloadPage() {
     const [showSuccessPopup, setShowSuccessPopup] = useState(false)
     const [downloadButtonEnabled, setDownloadButtonEnabled] = useState(false)
     const [downloadLink, setDownloadLink] = useState("")
+    const [triggerDownload, setTriggerDownload] = useState(false)
     const [fileName, setFileName] = useState("")
     const [progressUpdating, setProgressUpdating] = useState(false)
 
@@ -221,47 +222,44 @@ export default function KitDownloadPage() {
         setInstagramCountdownActive(true)
     }
 
+    useEffect(() => {
+        if (triggerDownload && downloadLink) {
+            const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`
+            
+            // Create an invisible iframe to trigger the download
+            const iframe = document.createElement('iframe')
+            iframe.style.display = 'none'
+            iframe.src = downloadUrl
+            document.body.appendChild(iframe)
+    
+            // Remove the iframe after a delay
+            setTimeout(() => {
+                document.body.removeChild(iframe)
+                setIsDownloading(false)
+                setShowSuccessPopup(true)
+            }, 2000)
+            
+            // Reset the trigger
+            setTriggerDownload(false)
+        }
+    }, [triggerDownload, downloadLink])
+    
+    // Update the click handler to use the trigger
     const handleDownloadClick = () => {
         if (downloadLink) {
             setIsDownloading(true)
             setDownloadClicked(true)
-
-            try {
-                const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`
-
-                if (typeof document !== 'undefined') {
-                    const iframe = document.createElement('iframe')
-                    iframe.style.display = 'none'
-                    iframe.src = downloadUrl
-                    document.body.appendChild(iframe)
-    
-                    setTimeout(() => {
-                        document.body.removeChild(iframe)
-                        setIsDownloading(false)
-                        setShowSuccessPopup(true)
-                    }, 2000)
-                }
-
-                updateDownloadCount()
-
-                toast({
-                    title: "Download Started",
-                    description: "Your file download has begun. Check your downloads folder.",
-                })
-            } catch (error) {
-                console.error("Error starting download:", error)
-                setDownloadError(true)
-                setIsDownloading(false)
-
-                toast({
-                    title: "Download Failed",
-                    description: "Unable to start download. Please try again.",
-                    variant: "destructive",
-                })
-            }
+            setTriggerDownload(true) // This will trigger the useEffect
+            
+            updateDownloadCount()
+            
+            toast({
+                title: "Download Started",
+                description: "Your file download has begun. Check your downloads folder.",
+            })
         } else {
             setDownloadError(true)
-
+            
             toast({
                 title: "Download Link Not Available",
                 description: "Sorry, the download link for this kit is currently unavailable.",
