@@ -229,18 +229,18 @@ export default function KitDownloadPage() {
             try {
                 const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`
 
-                // Create an invisible iframe to trigger the download
-                const iframe = document.createElement('iframe')
-                iframe.style.display = 'none'
-                iframe.src = downloadUrl
-                document.body.appendChild(iframe)
-
-                // Remove the iframe after a delay
-                setTimeout(() => {
-                    document.body.removeChild(iframe)
-                    setIsDownloading(false)
-                    setShowSuccessPopup(true)
-                }, 2000)
+                if (typeof document !== 'undefined') {
+                    const iframe = document.createElement('iframe')
+                    iframe.style.display = 'none'
+                    iframe.src = downloadUrl
+                    document.body.appendChild(iframe)
+    
+                    setTimeout(() => {
+                        document.body.removeChild(iframe)
+                        setIsDownloading(false)
+                        setShowSuccessPopup(true)
+                    }, 2000)
+                }
 
                 updateDownloadCount()
 
