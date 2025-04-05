@@ -16,6 +16,7 @@ import { OrderCard } from "@/components/order-card"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import { useRouter } from "next/navigation"
 import { toast } from "@/components/ui/use-toast"
+import LoadingComponent from '@/components/Loading';
 
 interface Kit {
   id: string
@@ -39,15 +40,15 @@ export default function KitsPage() {
   const [allKits, setKits] = useState<Kit[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-    useEffect(() => {
-  
-  const fetchKits = async () => {
-    setIsLoading(true)
-    try {
-      // Get all kits without filtering by user
-      const { data, error } = await supabase
-        .from('kits')
-        .select(`
+  useEffect(() => {
+
+    const fetchKits = async () => {
+      setIsLoading(true)
+      try {
+        // Get all kits without filtering by user
+        const { data, error } = await supabase
+          .from('kits')
+          .select(`
           id,
           name,
           description,
@@ -57,76 +58,77 @@ export default function KitsPage() {
           image,
           created_at
         `)
-        .order('created_at', { ascending: false })
-  
-      console.log("Kits query result:", data, error)
-  
-      if (error) throw error
-  
-      if (!data || data.length === 0) {
-        console.log("No kits found in database")
-        setKits([])
+          .order('created_at', { ascending: false })
+
+        console.log("Kits query result:", data, error)
+
+        if (error) throw error
+
+        if (!data || data.length === 0) {
+          console.log("No kits found in database")
+          setKits([])
+          setIsLoading(false)
+          return
+        }
+
+        // Format the kit data to match the expected structure
+        const formattedKits: Kit[] = await Promise.all(data.map(async (kit) => {
+          // Get download count
+          const { count: downloadCount, error: downloadError } = await supabase
+            .from('kit_downloads')
+            .select('*', { count: 'exact', head: true })
+            .eq('kit_id', kit.id)
+
+          if (downloadError) console.error("Error fetching downloads:", downloadError)
+
+          // Get file count from kit_files table
+          const { count: fileCount, error: fileCountError } = await supabase
+            .from('kit_files')
+            .select('*', { count: 'exact', head: true })
+            .eq('kit_id', kit.id)
+
+          if (fileCountError) console.error("Error fetching file count:", fileCountError)
+
+          // Get the image URL if there is an image path
+          let imageUrl = '/placeholder.svg?height=40&width=40'
+          if (kit.image) {
+            const { data: imageData } = await supabase.storage
+              .from('kit-images')
+              .getPublicUrl(kit.image)
+
+            imageUrl = imageData?.publicUrl || imageUrl
+          }
+
+          return {
+            id: kit.id,
+            title: kit.name,
+            description: kit.description,
+            type: kit.category,
+            fileCount: fileCount || 0,
+            downloads: downloadCount || 0,
+            status: kit.status,
+            createdAt: kit.created_at,
+            image: imageUrl,
+            price: kit.price || 0
+          }
+        }))
+
+        setKits(formattedKits)
+      } catch (error) {
+        console.error("Error fetching kits:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load your kits. Please try again.",
+          variant: "destructive",
+        })
+      } finally {
         setIsLoading(false)
-        return
       }
-  
-      // Format the kit data to match the expected structure
-      const formattedKits: Kit[] = await Promise.all(data.map(async (kit) => {
-        // Get download count
-        const { count: downloadCount, error: downloadError } = await supabase
-          .from('kit_downloads')
-          .select('*', { count: 'exact', head: true })
-          .eq('kit_id', kit.id)
-  
-        if (downloadError) console.error("Error fetching downloads:", downloadError)
-  
-        // Get file count from kit_files table
-        const { count: fileCount, error: fileCountError } = await supabase
-          .from('kit_files')
-          .select('*', { count: 'exact', head: true })
-          .eq('kit_id', kit.id)
-  
-        if (fileCountError) console.error("Error fetching file count:", fileCountError)
-  
-        // Get the image URL if there is an image path
-        let imageUrl = '/placeholder.svg?height=40&width=40'
-        if (kit.image) {
-          const { data: imageData } = await supabase.storage
-            .from('kit-images')
-            .getPublicUrl(kit.image)
-  
-          imageUrl = imageData?.publicUrl || imageUrl
-        }
-  
-        return {
-          id: kit.id,
-          title: kit.name,
-          description: kit.description,
-          type: kit.category,
-          fileCount: fileCount || 0,
-          downloads: downloadCount || 0,
-          status: kit.status,
-          createdAt: kit.created_at,
-          image: imageUrl,
-          price: kit.price || 0
-        }
-      }))
-  
-      setKits(formattedKits)
-    } catch (error) {
-      console.error("Error fetching kits:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load your kits. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
     }
-  }
-  
-      fetchKits()
-    }, [supabase, router])
+
+    fetchKits()
+    setIsLoading(false);
+  }, [supabase, router])
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -138,6 +140,8 @@ export default function KitsPage() {
       },
     },
   }
+
+  if (isLoading) return <LoadingComponent />;
 
   return (
     <div className="flex min-h-screen flex-col">

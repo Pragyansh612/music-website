@@ -18,6 +18,7 @@ import { SEO } from "@/components/seo-optimization"
 import { useRouter, useParams } from "next/navigation"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import { toast } from "@/components/ui/use-toast"
+import LoadingComponent from '@/components/Loading'
 
 const supabase = createClientComponentClient()
 
@@ -143,7 +144,7 @@ export default function KitDetailsPage() {
           }));
 
           setFiles(formattedFiles);
-          
+
           // Calculate total size
           const totalSize = filesData.reduce((acc, file) => acc + (file.file_size || 0), 0);
           if (kitData) {
@@ -155,7 +156,7 @@ export default function KitDetailsPage() {
           }
           setRelatedKits(relatedData || []);
         }
-        
+
         // Fetch preview samples
         const { data: previewData, error: previewError } = await supabase
           .from('kit_previews')
@@ -198,7 +199,7 @@ export default function KitDetailsPage() {
     if (kitId) {
       fetchKitDetails();
     }
-    
+    setIsLoading(false);
     // Initialize audio element
     const audio = new Audio();
     audio.onended = () => {
@@ -206,7 +207,7 @@ export default function KitDetailsPage() {
       setCurrentPreview(null);
     };
     setAudioElement(audio);
-    
+
     // Cleanup function
     return () => {
       if (audioElement) {
@@ -238,7 +239,7 @@ export default function KitDetailsPage() {
 
   const handlePlaySingle = (url: string) => {
     if (!audioElement) return;
-    
+
     if (currentPreview === url && isPlaying) {
       audioElement.pause();
       setIsPlaying(false);
@@ -248,14 +249,14 @@ export default function KitDetailsPage() {
       if (isPlaying) {
         audioElement.pause();
       }
-      
+
       // Set new audio source and play
       audioElement.src = url;
       audioElement.volume = isMuted ? 0 : volume;
-      
+
       // Play the audio
       const playPromise = audioElement.play();
-      
+
       // Handle play promise (might be rejected if user hasn't interacted with the page)
       if (playPromise !== undefined) {
         playPromise
@@ -285,11 +286,11 @@ export default function KitDetailsPage() {
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newVolume = Number.parseFloat(e.target.value);
     setVolume(newVolume);
-    
+
     if (audioElement) {
       audioElement.volume = newVolume;
     }
-    
+
     if (newVolume === 0) {
       setIsMuted(true);
       if (audioElement) audioElement.muted = true;
@@ -322,11 +323,7 @@ export default function KitDetailsPage() {
   };
 
   if (isLoading || !kit) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center">
-        <p>Loading kit details...</p>
-      </div>
-    );
+    return <LoadingComponent />
   }
 
   // SEO data for this specific kit
