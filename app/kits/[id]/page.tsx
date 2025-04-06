@@ -75,6 +75,7 @@ export default function KitDetailsPage() {
   const [relatedKits, setRelatedKits] = useState<Kit[]>([])
   const [previewSamples, setPreviewSamples] = useState<PreviewSample[]>([]);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [showSharePopup, setShowSharePopup] = useState(false);
 
   useEffect(() => {
     const fetchKitDetails = async () => {
@@ -232,47 +233,83 @@ export default function KitDetailsPage() {
       setIsPlaying(false);
       setCurrentPreview(null);
     } else if (previewSamples.length > 0) {
-      const firstPreview = previewSamples[0];
-      handlePlaySingle(firstPreview.file_url || '');
+      try {
+        const firstPreview = previewSamples[0];
+        if (!firstPreview.file_url) {
+          toast({
+            title: "Playback Error",
+            description: "Preview file not available",
+            variant: "destructive",
+          });
+          return;
+        }
+        handlePlaySingle(firstPreview.file_url);
+      } catch (error) {
+        console.error("Playback error:", error);
+        toast({
+          title: "Playback Error",
+          description: "Could not play the audio. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } else {
+      toast({
+        title: "No Previews",
+        description: "No preview samples available for this kit.",
+        variant: "default",
+      });
     }
   };
 
   const handlePlaySingle = (url: string) => {
     if (!audioElement) return;
-
-    if (currentPreview === url && isPlaying) {
-      audioElement.pause();
+    
+    try {
+      if (currentPreview === url && isPlaying) {
+        audioElement.pause();
+        setIsPlaying(false);
+        setCurrentPreview(null);
+      } else {
+        // Stop current audio if playing
+        if (isPlaying) {
+          audioElement.pause();
+        }
+  
+        // Set new audio source and play
+        audioElement.src = url;
+        audioElement.volume = isMuted ? 0 : volume;
+  
+        // Play the audio
+        const playPromise = audioElement.play();
+  
+        // Handle play promise (might be rejected if user hasn't interacted with the page)
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsPlaying(true);
+              setCurrentPreview(url);
+            })
+            .catch(error => {
+              console.error("Playback failed:", error);
+              toast({
+                title: "Playback Error",
+                description: "Could not play the audio. Please try again.",
+                variant: "destructive",
+              });
+              setIsPlaying(false);
+              setCurrentPreview(null);
+            });
+        }
+      }
+    } catch (error) {
+      console.error("Audio error:", error);
+      toast({
+        title: "Playback Error",
+        description: "Could not play the audio. Please try again.",
+        variant: "destructive",
+      });
       setIsPlaying(false);
       setCurrentPreview(null);
-    } else {
-      // Stop current audio if playing
-      if (isPlaying) {
-        audioElement.pause();
-      }
-
-      // Set new audio source and play
-      audioElement.src = url;
-      audioElement.volume = isMuted ? 0 : volume;
-
-      // Play the audio
-      const playPromise = audioElement.play();
-
-      // Handle play promise (might be rejected if user hasn't interacted with the page)
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            setIsPlaying(true);
-            setCurrentPreview(url);
-          })
-          .catch(error => {
-            console.error("Playback failed:", error);
-            toast({
-              title: "Playback Error",
-              description: "Could not play the audio. Please try again.",
-              variant: "destructive",
-            });
-          });
-      }
     }
   };
 
@@ -297,6 +334,26 @@ export default function KitDetailsPage() {
     } else {
       setIsMuted(false);
       if (audioElement) audioElement.muted = false;
+    }
+  };
+
+  const handleShare = () => {
+    // Get the current URL for sharing
+    const shareUrl = `${window.location.origin}/kits/${kitId}`;
+
+    if (kit) {
+      if (navigator.share) {
+        navigator.share({
+          title: kit.name,
+          text: kit.description,
+          url: shareUrl,
+        }).catch(error => {
+          console.error('Error sharing:', error);
+          setShowSharePopup(true);
+        });
+      } else {
+        setShowSharePopup(true);
+      }
     }
   };
 
@@ -396,7 +453,7 @@ export default function KitDetailsPage() {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-30"></div>
 
                 {/* Play All Button Overlay */}
-                <div className="absolute inset-0 flex items-center justify-center">
+                {/* <div className="absolute inset-0 flex items-center justify-center">
                   <motion.button
                     onClick={handlePlayAll}
                     whileHover={{ scale: 1.1 }}
@@ -409,10 +466,10 @@ export default function KitDetailsPage() {
                       <Play size={32} className="text-white ml-1" />
                     )}
                   </motion.button>
-                </div>
+                </div> */}
 
                 {/* Volume Controls */}
-                {isPlaying && (
+                {/* {isPlaying && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -432,7 +489,7 @@ export default function KitDetailsPage() {
                     />
                     <span className="text-white text-xs">{Math.round(volume * 100)}%</span>
                   </motion.div>
-                )}
+                )} */}
               </motion.div>
 
               <motion.div
@@ -471,17 +528,18 @@ export default function KitDetailsPage() {
                 <div className="mt-auto space-y-4">
                   <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                     <Button
+                      variant="outline"
                       className="w-full gap-2 glass relative overflow-hidden group h-12 text-lg"
                       size="lg"
                       onClick={() => router.push(`/kits/${kitId}/download`)}
                     >
-                      <span className="relative z-10 text-black group-hover:text-white transition-colors duration-300">Download Kit</span>
+                      <span className="relative z-10 group-hover:text-white transition-colors duration-300">Download Kit</span>
                       <Download size={18} className="relative z-10" />
                       <span className="absolute inset-0 w-full h-full bg-primary/80 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></span>
                     </Button>
                   </motion.div>
                   <div className="flex gap-2">
-                    <Button variant="outline" className="flex-1 gap-2 glass">
+                    <Button variant="outline" className="flex-1 gap-2 glass" onClick={handleShare}>
                       <Share2 size={16} />
                       Share
                     </Button>
@@ -743,6 +801,43 @@ export default function KitDetailsPage() {
             </motion.div>
           </div>
         </div>
+        {/* Share Popup */}
+        {showSharePopup && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-background p-6 rounded-xl shadow-lg max-w-md mx-4 w-full border border-white/10"
+            >
+              <h3 className="text-lg font-medium mb-4">Share this kit</h3>
+              <div className="flex items-center gap-2 p-3 bg-black/20 rounded-lg mb-4">
+                <input
+                  type="text"
+                  value={`${window.location.origin}/kits/${kitId}`}
+                  className="bg-transparent flex-1 focus:outline-none text-sm"
+                  readOnly
+                />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/kits/${kitId}`);
+                    toast({
+                      title: "Link copied!",
+                      description: "Share link copied to clipboard",
+                    });
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setShowSharePopup(false)}>
+                  Close
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </main>
       <SiteFooter />
     </div>

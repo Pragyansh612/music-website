@@ -100,14 +100,14 @@ export function SiteFooter() {
                   Licensing
                 </Link>
               </li>
-              <li>
+              {/* <li>
                 <Link
                   href="/account"
                   className="text-muted-foreground hover:text-primary transition-colors duration-300 inline-block"
                 >
                   My Account
                 </Link>
-              </li>
+              </li> */}
             </ul>
           </div>
           <div>

@@ -82,13 +82,13 @@ export function OrderCard({ kit, variant = "simple", className = "" }: OrderCard
             
             {variant === "detailed" ? (
               <Button variant="outline" size="sm" className="glass relative overflow-hidden group/btn">
-                <span className="relative z-10">Download</span>
+                <span className="relative z-10 hover:text-white">Download</span>
                 <Download size={16} className="relative z-10 ml-1" />
                 <span className="absolute inset-0 w-full h-full bg-primary/80 transform translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 ease-out"></span>
               </Button>
             ) : (
               <Button variant="outline" size="sm" className="glass">
-                <span className="relative z-10">Download</span>
+                <span className="relative z-10 hover:text-white">Download</span>
                 <Download size={16} className="relative z-10 ml-1" />
               </Button>
             )}

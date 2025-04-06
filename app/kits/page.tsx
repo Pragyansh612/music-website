@@ -26,6 +26,16 @@ interface Kit {
   fileCount: number
   type: string
   bpm?: string
+  downloads: number
+  status: string
+  createdAt: string
+  price: number
+}
+
+interface FilterOptions {
+  types: string[]
+  bpmRanges: string[]
+  genres: string[]
 }
 
 export default function KitsPage() {
@@ -33,15 +43,20 @@ export default function KitsPage() {
   const router = useRouter()
   const supabase = createClientComponentClient()
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState("all")
+  const [selectedTab, setSelectedTab] = useState("all")
   const [sortBy, setSortBy] = useState("newest")
-  const [deleteKitId, setDeleteKitId] = useState<string | null>(null)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [allKits, setKits] = useState<Kit[]>([])
+  const [allKits, setAllKits] = useState<Kit[]>([])
+  const [filteredKits, setFilteredKits] = useState<Kit[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  
+  // Add filter states
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    types: [],
+    bpmRanges: [],
+    genres: []
+  })
 
   useEffect(() => {
-
     const fetchKits = async () => {
       setIsLoading(true)
       try {
@@ -66,7 +81,8 @@ export default function KitsPage() {
 
         if (!data || data.length === 0) {
           console.log("No kits found in database")
-          setKits([])
+          setAllKits([])
+          setFilteredKits([])
           setIsLoading(false)
           return
         }
@@ -113,7 +129,8 @@ export default function KitsPage() {
           }
         }))
 
-        setKits(formattedKits)
+        setAllKits(formattedKits)
+        setFilteredKits(formattedKits)
       } catch (error) {
         console.error("Error fetching kits:", error)
         toast({
@@ -127,8 +144,92 @@ export default function KitsPage() {
     }
 
     fetchKits()
-    setIsLoading(false);
   }, [supabase, router])
+
+  // Apply filters whenever filter options, search query, or selected tab changes
+  useEffect(() => {
+    applyFilters()
+  }, [filterOptions, searchQuery, selectedTab, allKits])
+
+  const applyFilters = () => {
+    let filtered = [...allKits]
+
+    // Apply tab filter
+    if (selectedTab !== "all") {
+      // Convert tab value to appropriate category name from database
+      const categoryMap: { [key: string]: string } = {
+        drums: "Drum Kit",
+        melodies: "Melody Loops",
+        "sample-pack": "Sample Pack",
+        oneshots: "Vocal Samples",
+        fx: "Sound Effects"
+      }
+      
+      filtered = filtered.filter(kit => 
+        kit.type === categoryMap[selectedTab]
+      )
+    }
+
+    // Apply type filters
+    if (filterOptions.types.length > 0) {
+      filtered = filtered.filter(kit => 
+        filterOptions.types.includes(kit.type)
+      )
+    }
+    if (searchQuery.trim() !== "") {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(kit => 
+        kit.title.toLowerCase().includes(query) || 
+        kit.description.toLowerCase().includes(query)
+      )
+    }
+
+    setFilteredKits(filtered)
+  }
+
+  const handleTabChange = (value: string) => {
+    setSelectedTab(value)
+  }
+
+  const handleTypeFilterChange = (type: string) => {
+    setFilterOptions(prev => {
+      // If already selected, remove it; otherwise, add it
+      const newTypes = prev.types.includes(type)
+        ? prev.types.filter(t => t !== type)
+        : [...prev.types, type]
+        
+      return { ...prev, types: newTypes }
+    })
+  }
+
+  const handleBpmFilterChange = (bpmRange: string) => {
+    setFilterOptions(prev => {
+      const newBpmRanges = prev.bpmRanges.includes(bpmRange)
+        ? prev.bpmRanges.filter(b => b !== bpmRange)
+        : [...prev.bpmRanges, bpmRange]
+        
+      return { ...prev, bpmRanges: newBpmRanges }
+    })
+  }
+
+  const handleGenreFilterChange = (genre: string) => {
+    setFilterOptions(prev => {
+      const newGenres = prev.genres.includes(genre)
+        ? prev.genres.filter(g => g !== genre)
+        : [...prev.genres, genre]
+        
+      return { ...prev, genres: newGenres }
+    })
+  }
+
+  const resetFilters = () => {
+    setFilterOptions({
+      types: [],
+      bpmRanges: [],
+      genres: []
+    })
+    setSearchQuery("")
+  }
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -199,16 +300,49 @@ export default function KitsPage() {
                     <h4 className="text-sm font-medium mb-2">Type</h4>
                     <div className="space-y-2">
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary" 
+                          checked={filterOptions.types.includes("Drum Kit")}
+                          onChange={() => handleTypeFilterChange("Drum Kit")}
+                        />
                         Drum Kits
                       </label>
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary" 
+                          checked={filterOptions.types.includes("Melody Loops")}
+                          onChange={() => handleTypeFilterChange("Melody Loops")}
+                        />
                         Melody Loops
                       </label>
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
-                        One Shots
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.types.includes("Sample Pack")}
+                          onChange={() => handleTypeFilterChange("Sample Pack")}
+                        />
+                        Sample Pack
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.types.includes("Vocal Samples")}
+                          onChange={() => handleTypeFilterChange("Vocal Samples")}
+                        />
+                        Vocal Samples
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.types.includes("Sound Effects")}
+                          onChange={() => handleTypeFilterChange("Sound Effects")}
+                        />
+                        Sound Effects
                       </label>
                     </div>
                   </div>
@@ -216,15 +350,30 @@ export default function KitsPage() {
                     <h4 className="text-sm font-medium mb-2">BPM Range</h4>
                     <div className="space-y-2">
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.bpmRanges.includes("70-90")}
+                          onChange={() => handleBpmFilterChange("70-90")}
+                        />
                         70-90 BPM
                       </label>
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.bpmRanges.includes("90-110")}
+                          onChange={() => handleBpmFilterChange("90-110")}
+                        />
                         90-110 BPM
                       </label>
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.bpmRanges.includes("110+")}
+                          onChange={() => handleBpmFilterChange("110+")}
+                        />
                         110+ BPM
                       </label>
                     </div>
@@ -233,74 +382,93 @@ export default function KitsPage() {
                     <h4 className="text-sm font-medium mb-2">Genre</h4>
                     <div className="space-y-2">
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.genres.includes("Hip-Hop")}
+                          onChange={() => handleGenreFilterChange("Hip-Hop")}
+                        />
                         Hip-Hop
                       </label>
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.genres.includes("Electronic")}
+                          onChange={() => handleGenreFilterChange("Electronic")}
+                        />
                         Electronic
                       </label>
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-primary" />
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-primary"
+                          checked={filterOptions.genres.includes("Lo-Fi")}
+                          onChange={() => handleGenreFilterChange("Lo-Fi")}
+                        />
                         Lo-Fi
                       </label>
                     </div>
                   </div>
                 </div>
                 <div className="flex justify-end mt-4">
-                  <Button size="sm" variant="outline" className="mr-2 glass">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="mr-2 glass"
+                    onClick={resetFilters}
+                  >
                     Reset
                   </Button>
-                  <Button size="sm" variant="premium" className="glass">
+                  <Button 
+                    size="sm" 
+                    variant="premium" 
+                    className="glass"
+                    onClick={applyFilters}
+                  >
                     Apply Filters
                   </Button>
                 </div>
               </div>
             </motion.div>
 
-            <Tabs defaultValue="all" className="mb-8">
+            <Tabs 
+              defaultValue="all" 
+              className="mb-8"
+              value={selectedTab}
+              onValueChange={handleTabChange}
+            >
               <TabsList className="glass">
                 <TabsTrigger value="all">All Kits</TabsTrigger>
                 <TabsTrigger value="drums">Drum Kits</TabsTrigger>
                 <TabsTrigger value="melodies">Melody Loops</TabsTrigger>
-                <TabsTrigger value="oneshots">One Shots</TabsTrigger>
+                <TabsTrigger value="sample-pack">Sample Pack</TabsTrigger>
+                <TabsTrigger value="oneshots">Vocal Samples</TabsTrigger>
                 <TabsTrigger value="fx">FX</TabsTrigger>
               </TabsList>
-              <TabsContent value="all" className="mt-6">
-                <motion.div
-                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-                  variants={containerVariants}
-                  initial="hidden"
-                  animate="visible"
-                >
-                  {allKits.map((kit) => (
-                    <OrderCard key={kit.id} kit={kit} variant="detailed" />
-                  ))}
-                </motion.div>
-              </TabsContent>
-              <TabsContent value="drums" className="mt-6">
-                <motion.div
-                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-                  variants={containerVariants}
-                  initial="hidden"
-                  animate="visible"
-                >
-                  {allKits
-                    .filter((kit) => kit.type === "Drum Kit")
-                    .map((kit) => (
+              
+              <div className="mt-6">
+                {filteredKits.length > 0 ? (
+                  <motion.div
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                  >
+                    {filteredKits.map((kit) => (
                       <OrderCard key={kit.id} kit={kit} variant="detailed" />
                     ))}
-                </motion.div>
-              </TabsContent>
-              <TabsContent value="melodies" className="mt-6">
-                {/* Melody Loops content would go here using OrderCard component */}
-              </TabsContent>
-              <TabsContent value="oneshots" className="mt-6">
-                {/* One Shots content would go here using OrderCard component */}
-              </TabsContent>
-              <TabsContent value="fx" className="mt-6">
-                {/* FX content would go here using OrderCard component */}
-              </TabsContent>
+                  </motion.div>
+                ) : (
+                  <div className="text-center py-12">
+                    <Package className="h-12 w-12 mx-auto text-muted-foreground" />
+                    <h3 className="mt-4 text-lg font-medium">No kits found</h3>
+                    <p className="mt-2 text-muted-foreground">
+                      Try adjusting your filters or search query
+                    </p>
+                  </div>
+                )}
+              </div>
             </Tabs>
           </div>
         </section>
