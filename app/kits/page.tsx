@@ -16,7 +16,7 @@ import { OrderCard } from "@/components/order-card"
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import { useRouter } from "next/navigation"
 import { toast } from "@/components/ui/use-toast"
-import LoadingComponent from '@/components/Loading';
+// import LoadingComponent from '@/components/Loading';
 
 interface Kit {
   id: string
@@ -141,7 +141,7 @@ export default function KitsPage() {
     },
   }
 
-  if (isLoading) return <LoadingComponent />;
+  // if (isLoading) return <LoadingComponent />;
 
   return (
     <div className="flex min-h-screen flex-col">
