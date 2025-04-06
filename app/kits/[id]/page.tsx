@@ -747,7 +747,7 @@ export default function KitDetailsPage() {
           <Separator className="my-10 opacity-30" />
 
           <div>
-            <motion.h2
+            {/* <motion.h2
               className="text-2xl font-bold mb-6"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -755,7 +755,7 @@ export default function KitDetailsPage() {
               transition={{ duration: 0.5 }}
             >
               You Might Also Like
-            </motion.h2>
+            </motion.h2> */}
             <motion.div
               className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
               variants={containerVariants}
