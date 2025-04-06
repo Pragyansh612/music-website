@@ -44,6 +44,9 @@ export default function AddKitPage() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [userId, setUserId] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewFileInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -348,7 +351,7 @@ export default function AddKitPage() {
           throw new Error("Failed to upload any files");
         }
       }
-      
+
       // 4. Upload preview files to Supabase
       if (previewFiles.length > 0) {
         for (const previewFile of previewFiles) {
@@ -680,6 +683,7 @@ export default function AddKitPage() {
                           </p>
                         </div>
                         <Input
+                          ref={fileInputRef}
                           id="kit-files"
                           type="file"
                           multiple
@@ -687,7 +691,7 @@ export default function AddKitPage() {
                           onChange={handleKitFilesChange}
                           accept=".wav,.mp3,.aiff,.zip,.rar"
                         />
-                        <Button variant="outline" type="button" onClick={() => document.getElementById("kit-files")?.click()}>
+                        <Button variant="outline" type="button" onClick={() => fileInputRef.current?.click()}>
                           <Music size={16} className="mr-2" />
                           Select Files
                         </Button>
