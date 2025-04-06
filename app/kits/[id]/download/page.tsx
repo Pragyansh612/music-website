@@ -223,26 +223,31 @@ export default function KitDownloadPage() {
     }
 
     useEffect(() => {
-        if (triggerDownload && downloadLink) {
-            const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`
+        if (!triggerDownload || !downloadLink || typeof window === 'undefined') return;
+        
+        try {
+            // Create an invisible anchor element instead of iframe
+            const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`;
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.setAttribute('download', fileName || 'download.zip');
+            link.setAttribute('target', '_blank');
+            document.body.appendChild(link);
+            link.click();
             
-            // Create an invisible iframe to trigger the download
-            const iframe = document.createElement('iframe')
-            iframe.style.display = 'none'
-            iframe.src = downloadUrl
-            document.body.appendChild(iframe)
-    
-            // Remove the iframe after a delay
+            // Clean up
             setTimeout(() => {
-                document.body.removeChild(iframe)
-                setIsDownloading(false)
-                setShowSuccessPopup(true)
-            }, 2000)
-            
-            // Reset the trigger
-            setTriggerDownload(false)
+                document.body.removeChild(link);
+                setIsDownloading(false);
+                setShowSuccessPopup(true);
+            }, 2000);
+        } catch (error) {
+            console.error("Download error:", error);
+            setDownloadError(true);
+        } finally {
+            setTriggerDownload(false);
         }
-    }, [triggerDownload, downloadLink])
+    }, [triggerDownload, downloadLink, fileName]);
     
     // Update the click handler to use the trigger
     const handleDownloadClick = () => {
@@ -269,7 +274,7 @@ export default function KitDownloadPage() {
     }
 
     const updateDownloadCount = async () => {
-        if (!kit) return
+        if (!kit || !supabase) return
 
         try {
             // Increment the download count in the database
@@ -287,7 +292,7 @@ export default function KitDownloadPage() {
     }
 
     const getLink = () => {
-        if (downloadLink) {
+        if (downloadLink && typeof window !== 'undefined') {
             window.open(downloadLink, "_blank")
         } else {
             toast({
