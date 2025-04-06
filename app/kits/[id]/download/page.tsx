@@ -14,7 +14,7 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import { useRouter, useParams } from "next/navigation"
 import { toast } from "@/components/ui/use-toast"
 import LoadingComponent from '@/components/Loading';
-import { isBrowser, downloadFile } from '@/utils/browserUtils';
+// import { isBrowser, downloadFile } from '@/utils/browserUtils';
 
 const getSupabase = () => createClientComponentClient();
 
@@ -224,21 +224,21 @@ export default function KitDownloadPage() {
         setInstagramCountdownActive(true)
     }
 
-    useEffect(() => {
-        if (!triggerDownload || !downloadLink || !isBrowser) return;
+    // useEffect(() => {
+    //     if (!triggerDownload || !downloadLink || !isBrowser) return;
         
-        const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`;
-        const success = downloadFile(downloadUrl, fileName || 'download.zip');
+    //     const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`;
+    //     const success = downloadFile(downloadUrl, fileName || 'download.zip');
         
-        if (success) {
-          setIsDownloading(false);
-          setShowSuccessPopup(true);
-        } else {
-          setDownloadError(true);
-        }
+    //     if (success) {
+    //       setIsDownloading(false);
+    //       setShowSuccessPopup(true);
+    //     } else {
+    //       setDownloadError(true);
+    //     }
         
-        setTriggerDownload(false);
-      }, [triggerDownload, downloadLink, fileName]);
+    //     setTriggerDownload(false);
+    //   }, [triggerDownload, downloadLink, fileName]);
 
     // Update the click handler to use the trigger
     const handleDownloadClick = () => {
