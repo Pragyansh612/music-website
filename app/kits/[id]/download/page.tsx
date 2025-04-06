@@ -14,6 +14,7 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs"
 import { useRouter, useParams } from "next/navigation"
 import { toast } from "@/components/ui/use-toast"
 import LoadingComponent from '@/components/Loading';
+import { isBrowser, downloadFile } from '@/utils/browserUtils';
 
 const getSupabase = () => createClientComponentClient();
 
@@ -224,30 +225,20 @@ export default function KitDownloadPage() {
     }
 
     useEffect(() => {
-        if (!triggerDownload || !downloadLink || typeof window === 'undefined') return;
-
-        try {
-            const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`;
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.setAttribute('download', fileName || 'download.zip');
-            link.setAttribute('target', '_blank');
-            document.body.appendChild(link);
-            link.click();
-
-            // Clean up
-            setTimeout(() => {
-                document.body.removeChild(link);
-                setIsDownloading(false);
-                setShowSuccessPopup(true);
-            }, 2000);
-        } catch (error) {
-            console.error("Download error:", error);
-            setDownloadError(true);
-        } finally {
-            setTriggerDownload(false);
+        if (!triggerDownload || !downloadLink || !isBrowser) return;
+        
+        const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`;
+        const success = downloadFile(downloadUrl, fileName || 'download.zip');
+        
+        if (success) {
+          setIsDownloading(false);
+          setShowSuccessPopup(true);
+        } else {
+          setDownloadError(true);
         }
-    }, [triggerDownload, downloadLink, fileName]);
+        
+        setTriggerDownload(false);
+      }, [triggerDownload, downloadLink, fileName]);
 
     // Update the click handler to use the trigger
     const handleDownloadClick = () => {
