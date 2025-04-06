@@ -1,13 +1,13 @@
 'use client'
 
 import type React from "react"
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import { motion } from "framer-motion"
 import { Eye, EyeOff, Lock, User } from "lucide-react"
 
-import { supabase } from "@/lib/supabase" 
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,37 +15,66 @@ import { ThemeToggle } from "@/components/theme-toggle"
 
 export default function AdminLoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
 
+  // Check if we were redirected from somewhere
+  const from = searchParams.get('from') || '/producer/admin/dashboard'
+
+  // Check if user is already logged in as admin
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      console.log('Full session structure:', JSON.stringify(session, null, 2))
+      console.log('User structure:', JSON.stringify(session?.user, null, 2))
+      if (session?.user?.user_metadata?.role === 'admin') {
+        // Already logged in as admin, redirect back to intended destination
+        router.push(from)
+      }
+    }
+
+    checkSession()
+  }, [from, router])
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError("")
-
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
-    if (signInError) {
-      setError(signInError.message)
-      setIsLoading(false)
-      return
+  
+    try {
+      // Sign in with email/password
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+  
+      if (signInError) {
+        setError(signInError.message)
+        setIsLoading(false)
+        return
+      }
+  
+      const user = data.user
+      console.log("User data after login:", user)
+  
+      // Check if user has admin role
+      if (user?.user_metadata?.role === 'admin' ||
+        (user?.app_metadata && user.app_metadata.role === 'admin')) {
+        // Use router.push instead of window.location for better client-side navigation
+        router.push(from)
+      } else {
+        setError("You are not authorized to access the admin panel.")
+        await supabase.auth.signOut()
+      }
+    } catch (error) {
+      console.error("Login error:", error)
+      setError("An unexpected error occurred. Please try again.")
     }
-
-    const user = data.user
-    console.log(user)    
-    if (user?.user_metadata?.role === 'admin') {
-      router.push("/producer/admin/dashboard")
-    } else {
-      setError("You are not authorized to access the admin panel.")
-      await supabase.auth.signOut()
-    }
-
+  
     setIsLoading(false)
   }
 

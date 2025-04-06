@@ -17,7 +17,7 @@ const navItems = [
   { href: "/contact", label: "Contact" },
   { href: "/faq", label: "FAQ" },
   { href: "/licensing", label: "Licensing" },
-  { href: "/account", label: "My Account" },
+  // { href: "/account", label: "My Account" },
 ]
 
 export function MobileNav() {
@@ -40,17 +40,17 @@ export function MobileNav() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild className="md:hidden">
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="ml-2 glass-card flex items-center justify-center hover:bg-white/40 dark:hover:bg-black/40"
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-2 glass-card flex items-center  justify-center hover:bg-white/40 dark:hover:bg-black/40"
         >
-          <Menu className="h-5 w-5" />
+          <Menu className="h-10 w-10" />
           <span className="sr-only">Toggle menu</span>
         </Button>
       </SheetTrigger>
-      <SheetContent 
-        side="right" 
+      <SheetContent
+        side="right"
         className="pr-0 bg-background/95 backdrop-blur-md dark:bg-background/90 border-l border-white/20 dark:border-white/10"
       >
         <div className="px-7">
@@ -72,7 +72,7 @@ export function MobileNav() {
                     pathname === item.href ? "text-primary" : "text-muted-foreground",
                   )}
                 >
-                  {item.label === "My Account" && <User size={18} className="mr-2" />}
+                  {/* {item.label === "My Account" && <User size={18} className="mr-2" />} */}
                   {item.label}
                 </Link>
               </motion.div>

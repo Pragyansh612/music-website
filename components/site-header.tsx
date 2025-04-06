@@ -31,14 +31,16 @@ export function SiteHeader() {
         <MainNav className="hidden md:flex" />
         <div className="flex flex-1 items-center justify-end space-x-4">
           <nav className="flex items-center space-x-3">
-            <Link
+            {/* <Link
               href="/profile"
               className="hidden sm:flex items-center space-x-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               <User size={18} className="text-primary" />
               <span>My Account</span>
-            </Link>
-            <ThemeToggle />
+            </Link> */}
+            <div className="flex items-center justify-center"> {/* Added wrapper div to ensure proper centering */}
+              <ThemeToggle />
+            </div>
             {/* <Button asChild variant="premium" size="sm" className="hidden sm:flex btn-shine">
               <Link href="/kits">
                 <span className="relative z-10">Download Kits</span>
