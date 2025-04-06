@@ -15,7 +15,7 @@ import { useRouter, useParams } from "next/navigation"
 import { toast } from "@/components/ui/use-toast"
 import LoadingComponent from '@/components/Loading';
 
-const supabase = createClientComponentClient()
+const getSupabase = () => createClientComponentClient();
 
 interface Kit {
     id: string;
@@ -68,6 +68,7 @@ export default function KitDownloadPage() {
         const fetchKitDetails = async () => {
             setIsLoading(true)
             try {
+                const supabase = getSupabase();
                 const { data: kitData, error: kitError } = await supabase
                     .from('kits')
                     .select('*')
@@ -224,9 +225,8 @@ export default function KitDownloadPage() {
 
     useEffect(() => {
         if (!triggerDownload || !downloadLink || typeof window === 'undefined') return;
-        
+
         try {
-            // Create an invisible anchor element instead of iframe
             const downloadUrl = `/api/download?url=${encodeURIComponent(downloadLink)}`;
             const link = document.createElement('a');
             link.href = downloadUrl;
@@ -234,7 +234,7 @@ export default function KitDownloadPage() {
             link.setAttribute('target', '_blank');
             document.body.appendChild(link);
             link.click();
-            
+
             // Clean up
             setTimeout(() => {
                 document.body.removeChild(link);
@@ -248,23 +248,23 @@ export default function KitDownloadPage() {
             setTriggerDownload(false);
         }
     }, [triggerDownload, downloadLink, fileName]);
-    
+
     // Update the click handler to use the trigger
     const handleDownloadClick = () => {
         if (downloadLink) {
             setIsDownloading(true)
             setDownloadClicked(true)
             setTriggerDownload(true) // This will trigger the useEffect
-            
+
             updateDownloadCount()
-            
+
             toast({
                 title: "Download Started",
                 description: "Your file download has begun. Check your downloads folder.",
             })
         } else {
             setDownloadError(true)
-            
+
             toast({
                 title: "Download Link Not Available",
                 description: "Sorry, the download link for this kit is currently unavailable.",
@@ -274,6 +274,7 @@ export default function KitDownloadPage() {
     }
 
     const updateDownloadCount = async () => {
+        const supabase = getSupabase();
         if (!kit || !supabase) return
 
         try {
