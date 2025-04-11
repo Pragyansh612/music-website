@@ -209,8 +209,8 @@ export default function AddKitPage() {
           status: formData.status,
           created_by: userId,
           image: imagePath,
-          is_premium: formData.isPremium,
-          tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()) : [],
+          // is_premium: formData.isPremium,
+          // tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()) : [],
         });
   
       if (kitError) throw kitError;
