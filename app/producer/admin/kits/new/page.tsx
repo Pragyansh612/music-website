@@ -164,39 +164,39 @@ export default function AddKitPage() {
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-
+    e.preventDefault();
+  
     if (!userId) {
       toast({
         title: "Error",
         description: "You must be logged in to create a kit",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
-
-    setIsSubmitting(true)
-    setUploadProgress(0)
-
+  
+    setIsSubmitting(true);
+    setUploadProgress(0);
+  
     try {
       // Generate a unique ID for the kit
-      const kitId = uuidv4()
-
-      // 1. Upload thumbnail image to Supabase (keep this as is)
-      let imagePath = null
+      const kitId = uuidv4();
+  
+      // 1. Upload thumbnail image to Supabase
+      let imagePath = null;
       if (thumbnailFile) {
-        const fileExt = thumbnailFile.name.split('.').pop()
-        const filePath = `${userId}/${kitId}/thumbnail.${fileExt}`
-
+        const fileExt = thumbnailFile.name.split('.').pop();
+        const filePath = `${userId}/${kitId}/thumbnail.${fileExt}`;
+  
         const { error: uploadError } = await supabase.storage
           .from('kit-images')
-          .upload(filePath, thumbnailFile)
-
-        if (uploadError) throw uploadError
-
-        imagePath = filePath
+          .upload(filePath, thumbnailFile);
+  
+        if (uploadError) throw uploadError;
+  
+        imagePath = filePath;
       }
-
+  
       // 2. Create the kit record in the database
       const { error: kitError } = await supabase
         .from('kits')
@@ -209,28 +209,32 @@ export default function AddKitPage() {
           status: formData.status,
           created_by: userId,
           image: imagePath,
-          // Add any other fields
-        })
-
-      if (kitError) throw kitError
-
+          is_premium: formData.isPremium,
+          tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()) : [],
+        });
+  
+      if (kitError) throw kitError;
+  
+      // Progress update
+      setUploadProgress(20);
+  
       // 3. Upload kit files directly to Google Drive main folder
       if (kitFiles && kitFiles.length > 0) {
         let uploadedCount = 0;
         const parentFolderId = '1yRCtRAXTLfWQFyfFeshJgiRJKV5E8FIw';
-
+        
         // Process files sequentially to avoid session conflicts
         for (let i = 0; i < kitFiles.length; i++) {
           const file = kitFiles[i];
           const uniqueFileName = file.name;
-
+          
           try {
-            // For large files, create a chunked upload
-            const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+            // For large files, create a chunked upload with SMALLER chunks for Vercel
+            const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks (reduced from 10MB)
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
+            
             console.log(`Starting upload for ${file.name} in ${totalChunks} chunks`);
-
+            
             // Initialize upload session
             const initResponse = await fetch('/api/drive/init-upload', {
               method: 'POST',
@@ -243,27 +247,38 @@ export default function AddKitPage() {
                 parentFolderId
               })
             });
-
+            
             if (!initResponse.ok) {
               throw new Error(`Failed to initialize upload: ${await initResponse.text()}`);
             }
-
+            
             const { uploadId } = await initResponse.json();
             console.log(`Received upload ID: ${uploadId}`);
-
-            // Upload each chunk with retries
-            for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+            
+            // Track successful chunks
+            let successfulChunks = 0;
+            let lastCompletedChunk = -1;
+            
+            // Upload chunks with retries and a queue to prevent overloading
+            const MAX_CONCURRENT_CHUNKS = 3;
+            let activeUploads = 0;
+            
+            // Function to upload a single chunk
+            const uploadChunk = async (chunkIndex: number) => {
+              if (chunkIndex >= totalChunks) return;
+              
+              activeUploads++;
               const start = chunkIndex * CHUNK_SIZE;
               const end = Math.min(file.size, start + CHUNK_SIZE);
               const chunk = file.slice(start, end);
-
-              console.log(`Uploading chunk ${chunkIndex}/${totalChunks} for ${file.name}`);
-
+              
+              console.log(`Uploading chunk ${chunkIndex}/${totalChunks} for ${file.name} (${chunk.size} bytes)`);
+              
               // Add retry mechanism
               const MAX_RETRIES = 3;
               let chunkAttempt = 0;
               let chunkSuccess = false;
-
+              
               while (chunkAttempt < MAX_RETRIES && !chunkSuccess) {
                 try {
                   const chunkFormData = new FormData();
@@ -271,33 +286,44 @@ export default function AddKitPage() {
                   chunkFormData.append('uploadId', uploadId);
                   chunkFormData.append('chunkIndex', chunkIndex.toString());
                   chunkFormData.append('totalChunks', totalChunks.toString());
-
+                  
                   const chunkResponse = await fetch('/api/drive/upload-chunk', {
                     method: 'POST',
                     body: chunkFormData,
                   });
-
+                  
                   if (!chunkResponse.ok) {
                     const errorText = await chunkResponse.text();
                     console.error(`Chunk upload failed (attempt ${chunkAttempt + 1}/${MAX_RETRIES}): ${errorText}`);
                     chunkAttempt++;
-
+                    
                     if (chunkAttempt >= MAX_RETRIES) {
                       throw new Error(`Failed to upload chunk after ${MAX_RETRIES} attempts: ${errorText}`);
                     }
-
-                    // Wait before retry
-                    await new Promise(resolve => setTimeout(resolve, 1000 * chunkAttempt));
+                    
+                    // Wait before retry with exponential backoff
+                    await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, chunkAttempt)));
                   } else {
                     chunkSuccess = true;
-
+                    successfulChunks++;
+                    
+                    // Track the last completed chunk for progress calculation
+                    if (chunkIndex > lastCompletedChunk) {
+                      lastCompletedChunk = chunkIndex;
+                    }
+                    
+                    // Update progress - allocate 20% for kit creation, 60% for kit file uploads
+                    const fileProgress = i / kitFiles.length;
+                    const chunkProgress = successfulChunks / (totalChunks * kitFiles.length);
+                    setUploadProgress(20 + Math.round((fileProgress + chunkProgress) * 60));
+                    
                     // Get the response data
                     const responseData = await chunkResponse.json();
-
-                    // Check if this was the last chunk and we have file info
+                    
+                    // Check if this was the last chunk and we have file info or if upload has started
                     if (responseData.fileId && responseData.webViewLink) {
                       console.log(`Upload complete for ${file.name}, Google Drive ID: ${responseData.fileId}`);
-
+                      
                       // Add entry to kit_files table with Google Drive info
                       const { error: fileRecordError } = await supabase
                         .from('kit_files')
@@ -309,31 +335,69 @@ export default function AddKitPage() {
                           google_drive_link: responseData.webViewLink,
                           google_drive_file_id: responseData.fileId
                         });
-
+                      
+                      if (fileRecordError) {
+                        console.error(`Error recording ${file.name}:`, fileRecordError);
+                      } else {
+                        uploadedCount++;
+                      }
+                    } else if (responseData.status === 'upload-started' && successfulChunks === totalChunks) {
+                      console.log(`All chunks uploaded for ${file.name}, waiting for server processing`);
+                      
+                      // Since we're using background processing, we need to create the record here
+                      const { error: fileRecordError } = await supabase
+                        .from('kit_files')
+                        .insert({
+                          kit_id: kitId,
+                          file_name: file.name,
+                          file_type: file.type,
+                          file_size: file.size,
+                          google_drive_link: `Processing - ${uploadId}`, // Placeholder until we get the actual link
+                          google_drive_file_id: `processing-${uploadId}` // Placeholder
+                        });
+                      
                       if (fileRecordError) {
                         console.error(`Error recording ${file.name}:`, fileRecordError);
                       } else {
                         uploadedCount++;
                       }
                     }
-
-                    // Update progress
-                    const fileProgress = (chunkIndex + 1) / totalChunks;
-                    setUploadProgress(50 + Math.round(((i + fileProgress) / kitFiles.length) * 50));
                   }
                 } catch (error) {
                   console.error(`Error uploading chunk ${chunkIndex} (attempt ${chunkAttempt + 1}/${MAX_RETRIES}):`, error);
                   chunkAttempt++;
-
+                  
                   if (chunkAttempt >= MAX_RETRIES) {
                     throw error;
                   }
-
-                  // Wait before retry
-                  await new Promise(resolve => setTimeout(resolve, 1000 * chunkAttempt));
+                  
+                  // Wait before retry with exponential backoff
+                  await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, chunkAttempt)));
+                } finally {
+                  activeUploads--;
                 }
               }
+            };
+            
+            // Control concurrency with a simple queue
+            let nextChunkToUpload = 0;
+            
+            while (nextChunkToUpload < totalChunks || activeUploads > 0) {
+              // If we can add more uploads and there are chunks left
+              while (activeUploads < MAX_CONCURRENT_CHUNKS && nextChunkToUpload < totalChunks) {
+                uploadChunk(nextChunkToUpload++);
+              }
+              
+              // Wait a bit before checking again
+              await new Promise(resolve => setTimeout(resolve, 100));
             }
+            
+            if (successfulChunks !== totalChunks) {
+              throw new Error(`Not all chunks uploaded successfully for ${file.name}`);
+            }
+            
+            console.log(`All chunks processed for ${file.name}`);
+            
           } catch (error) {
             console.error(`Error uploading ${file.name}:`, error);
             toast({
@@ -341,32 +405,35 @@ export default function AddKitPage() {
               description: `Failed to upload ${file.name}. ${error instanceof Error ? error.message : 'Please try again.'}`,
               variant: "destructive",
             });
-
+            
             // Continue with next file
           }
         }
-
+        
         // Show overall result after all files processed
         if (uploadedCount === 0 && kitFiles.length > 0) {
           throw new Error("Failed to upload any files");
         }
       }
-
+  
+      setUploadProgress(80);
+  
       // 4. Upload preview files to Supabase
       if (previewFiles.length > 0) {
-        for (const previewFile of previewFiles) {
+        for (let i = 0; i < previewFiles.length; i++) {
+          const previewFile = previewFiles[i];
           // Add timestamp or random string to ensure unique file path
           const uniqueId = new Date().getTime();
           const filePath = `${userId}/${kitId}/previews/${uniqueId}-${previewFile.name}`;
-
+  
           try {
             // Upload the file to kit-previews bucket
             const { error: previewUploadError } = await supabase.storage
               .from('kit-previews')
               .upload(filePath, previewFile.file);
-
+  
             if (previewUploadError) throw previewUploadError;
-
+  
             // Add entry to the database for this preview file
             const { error: previewRecordError } = await supabase
               .from('kit_previews')
@@ -378,16 +445,20 @@ export default function AddKitPage() {
                 file_size: previewFile.size,
                 category: 'audio-preview'
               });
-
+  
             if (previewRecordError) {
               console.error(`Error recording preview ${previewFile.name}:`, previewRecordError);
             }
+            
+            // Update progress - last 20% for preview files
+            setUploadProgress(80 + Math.round(((i + 1) / previewFiles.length) * 20));
           } catch (error) {
             console.error(`Error uploading preview ${previewFile.name}:`, error);
           }
         }
       }
-
+  
+      setUploadProgress(100);
       setUploadResult({
         success: true,
         message: "Your kit has been successfully uploaded!",
@@ -397,14 +468,14 @@ export default function AddKitPage() {
     }
     catch (error) {
       console.error("Upload process failed:", error);
-
+  
       // Update upload result correctly
       setUploadResult({
         success: false,
         message: `Failed to upload kit. ${error instanceof Error ? error.message : 'Please try again.'}`,
         kitId: ""
       });
-
+  
       toast({
         title: "Upload Error",
         description: `Failed to complete kit upload. Please try again.`,

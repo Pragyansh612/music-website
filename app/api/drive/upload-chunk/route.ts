@@ -4,6 +4,14 @@ import { uploadSessions } from '../sessionStore/route';
 
 // Set to force-dynamic to prevent caching
 export const dynamic = 'force-dynamic';
+// Set to increase body size limit
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '8mb' // This helps with Vercel's limits
+    }
+  }
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,7 +30,7 @@ export async function POST(req: NextRequest) {
     
     // Log for debugging
     console.log(`Processing chunk ${chunkIndex}/${totalChunks} for uploadId: ${uploadId}`);
-    console.log(`Available sessions: ${Array.from(uploadSessions.keys()).join(', ')}`);
+    console.log(`Chunk size: ${chunk.size} bytes`);
     
     const session = uploadSessions.get(uploadId);
     if (!session) {
@@ -58,27 +66,38 @@ export async function POST(req: NextRequest) {
     if (chunkIndex === totalChunks - 1 && session.chunks.filter(Boolean).length === totalChunks) {
       console.log(`All chunks received for uploadId: ${uploadId}, proceeding with upload`);
       
-      // Combine all chunks
-      const combinedBuffer = Buffer.concat(session.chunks);
-      
-      // Create a file-like object
-      const file = {
-        arrayBuffer: async () => combinedBuffer,
-        type: session.fileType,
-        name: session.fileName
-      };
-      
-      // Upload the combined file
-      const result = await uploadFile(file, session.fileName, session.parentFolderId);
-      
-      // Clean up the session
-      uploadSessions.delete(uploadId);
-      console.log(`Upload complete, session ${uploadId} deleted`);
-      
-      return NextResponse.json({
-        fileId: result.id,
-        webViewLink: result.link
+      // Process upload in background to avoid timeout
+      // Return success to client first
+      const response = NextResponse.json({
+        status: 'upload-started',
+        message: `All chunks received, upload process started`
       });
+      
+      // Create a background process to combine and upload
+      (async () => {
+        try {
+          // Combine all chunks
+          const combinedBuffer = Buffer.concat(session.chunks);
+          
+          // Create a file-like object
+          const file = {
+            arrayBuffer: async () => combinedBuffer,
+            type: session.fileType,
+            name: session.fileName
+          };
+          
+          // Upload the combined file
+          await uploadFile(file, session.fileName, session.parentFolderId);
+          
+          // Clean up the session
+          uploadSessions.delete(uploadId);
+          console.log(`Upload complete, session ${uploadId} deleted`);
+        } catch (error) {
+          console.error(`Background upload failed for ${uploadId}:`, error);
+        }
+      })();
+      
+      return response;
     }
     
     // If not the last chunk or not all chunks received yet

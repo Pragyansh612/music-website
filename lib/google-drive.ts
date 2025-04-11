@@ -21,7 +21,6 @@ export const googleDrive = initGoogleDriveClient();
 export const MAIN_FOLDER_ID = '1yRCtRAXTLfWQFyfFeshJgiRJKV5E8FIw';
 
 // Upload a file to Google Drive
-// Add this to google-drive.ts
 export const uploadFile = async (file: any, fileName: string, folderId: string) => {
   try {
     // Handle both File objects and our custom chunk-combined objects
@@ -42,6 +41,8 @@ export const uploadFile = async (file: any, fileName: string, folderId: string) 
     // Create a readable stream from buffer
     const readable = Readable.from(buffer);
     
+    console.log(`Starting Google Drive upload for ${fileName} (${buffer.length} bytes)`);
+    
     const response = await googleDrive.files.create({
       requestBody: {
         name: fileName,
@@ -54,6 +55,8 @@ export const uploadFile = async (file: any, fileName: string, folderId: string) 
       fields: 'id,webViewLink'
     });
     
+    console.log(`File uploaded to Google Drive: ${fileName}, ID: ${response.data.id}`);
+    
     // Make the file publicly accessible with link
     await googleDrive.permissions.create({
       fileId: response.data.id as string,
@@ -63,12 +66,51 @@ export const uploadFile = async (file: any, fileName: string, folderId: string) 
       }
     });
     
+    console.log(`File permissions set to public: ${response.data.id}`);
+    
     return {
       id: response.data.id,
       link: response.data.webViewLink
     };
   } catch (error) {
-    console.error('Error uploading file:', error);
+    console.error('Error uploading file to Google Drive:', error);
     throw error;
+  }
+};
+
+// Add a utility function to update file record after background processing
+export const updateFileRecord = async (supabase: any, kitId: string, fileName: string, fileId: string, webViewLink: string) => {
+  try {
+    // Find the placeholder record
+    const { data, error: findError } = await supabase
+      .from('kit_files')
+      .select()
+      .eq('kit_id', kitId)
+      .eq('file_name', fileName)
+      .single();
+    
+    if (findError || !data) {
+      console.error(`Failed to find placeholder record for ${fileName} in kit ${kitId}:`, findError);
+      return false;
+    }
+    
+    // Update the record with actual Google Drive info
+    const { error: updateError } = await supabase
+      .from('kit_files')
+      .update({
+        google_drive_link: webViewLink,
+        google_drive_file_id: fileId
+      })
+      .eq('id', data.id);
+    
+    if (updateError) {
+      console.error(`Failed to update record for ${fileName}:`, updateError);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`Error updating file record for ${fileName}:`, error);
+    return false;
   }
 };
