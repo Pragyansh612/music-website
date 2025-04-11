@@ -1,5 +1,6 @@
+// init-upload.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadSessions } from '../sessionStore/route';
+import { createUploadSession } from '@/lib/sessionManagement';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,21 +16,11 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    // Generate a unique upload ID with timestamp for better uniqueness
+    // Generate a unique upload ID
     const uploadId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
     
-    console.log(`Creating new upload session: ${uploadId}`);
-    
-    // Initialize the upload session with an empty chunks array
-    uploadSessions.set(uploadId, {
-      fileName,
-      fileType,
-      parentFolderId: parentFolderId || MAIN_FOLDER_ID,
-      chunks: [],
-      timestamp: Date.now(),
-    });
-    
-    console.log(`Active sessions after creation: ${Array.from(uploadSessions.keys()).join(', ')}`);
+    // Create the upload session in Supabase
+    await createUploadSession(uploadId, fileName, fileType, parentFolderId || MAIN_FOLDER_ID);
     
     return NextResponse.json({ uploadId });
   } catch (error) {
